@@ -38,13 +38,13 @@ func RunAnchorsChains() {
 	//✅ 2.Share our blocks within quorum members and get the finalization proofs
 	go threads.BlocksSharingAndProofsGrabingThread()
 
-	//✅ 4.Start to generate blocks
+	//✅ 3.Start to generate blocks
 	go threads.BlocksGenerationThread()
 
-	//✅ 5.Start a separate thread to work with voting for blocks in a sync way (for security)
+	//✅ 4.Start a separate thread to work with voting for blocks in a sync way (for security)
 	go threads.LeaderRotationThread()
 
-	//✅ 10.Start monitor anchors health
+	//✅ 5.Start monitor anchors health
 	go threads.HealthCheckerThread()
 
 	//___________________ RUN SERVERS - WEBSOCKET AND HTTP __________________
@@ -119,9 +119,7 @@ func prepareAnchorsChains() error {
 
 		handlers.APPROVEMENT_THREAD_METADATA.Handler = atHandler
 
-	}
-
-	if handlers.APPROVEMENT_THREAD_METADATA.Handler.CoreMajorVersion == -1 {
+	} else {
 
 		if err := loadGenesis(); err != nil {
 			return fmt.Errorf("load genesis issue: %w", err)
@@ -182,7 +180,7 @@ func loadGenesis() error {
 	epochHandlerForApprovementThread := structures.EpochDataHandler{
 		Id:                 0,
 		Hash:               initEpochHash,
-		ValidatorsRegistry: anchorsRegistryForEpochHandler,
+		AnchorsRegistry:    anchorsRegistryForEpochHandler,
 		StartTimestamp:     epochTimestamp,
 		Quorum:             []string{}, // will be assigned
 		LeadersSequence:    []string{}, // will be assigned

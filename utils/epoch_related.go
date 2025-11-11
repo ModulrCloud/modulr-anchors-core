@@ -4,8 +4,6 @@ import (
 	"encoding/hex"
 	"strconv"
 
-	"github.com/ModulrCloud/ModulrAnchorsCore/globals"
-	"github.com/ModulrCloud/ModulrAnchorsCore/handlers"
 	"github.com/ModulrCloud/ModulrAnchorsCore/structures"
 )
 
@@ -17,34 +15,6 @@ type CurrentLeaderData struct {
 type ValidatorData struct {
 	ValidatorPubKey string
 	TotalStake      uint64
-}
-
-func GetCurrentLeader() CurrentLeaderData {
-
-	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
-
-	defer handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
-
-	currentLeaderIndex := handlers.APPROVEMENT_THREAD_METADATA.Handler.EpochDataHandler.CurrentLeaderIndex
-
-	currentLeaderPubKey := handlers.APPROVEMENT_THREAD_METADATA.Handler.EpochDataHandler.LeadersSequence[currentLeaderIndex]
-
-	if currentLeaderPubKey != globals.CONFIGURATION.PublicKey {
-
-		validatorStorage := GetValidatorFromApprovementThreadState(currentLeaderPubKey)
-
-		if validatorStorage != nil {
-
-			return CurrentLeaderData{IsMeLeader: false, Url: validatorStorage.ValidatorUrl}
-
-		}
-
-		return CurrentLeaderData{IsMeLeader: false, Url: ""}
-
-	}
-
-	return CurrentLeaderData{IsMeLeader: true, Url: ""}
-
 }
 
 func GetQuorumMajority(epochHandler *structures.EpochDataHandler) int {
@@ -80,13 +50,13 @@ func GetQuorumUrlsAndPubkeys(epochHandler *structures.EpochDataHandler) []struct
 
 func GetCurrentEpochQuorum(epochHandler *structures.EpochDataHandler, quorumSize int, newEpochSeed string) []string {
 
-	totalNumberOfValidators := len(epochHandler.ValidatorsRegistry)
+	totalNumberOfValidators := len(epochHandler.AnchorsRegistry)
 
 	if totalNumberOfValidators <= quorumSize {
 
-		futureQuorum := make([]string, len(epochHandler.ValidatorsRegistry))
+		futureQuorum := make([]string, len(epochHandler.AnchorsRegistry))
 
-		copy(futureQuorum, epochHandler.ValidatorsRegistry)
+		copy(futureQuorum, epochHandler.AnchorsRegistry)
 
 		return futureQuorum
 	}
@@ -97,11 +67,11 @@ func GetCurrentEpochQuorum(epochHandler *structures.EpochDataHandler, quorumSize
 	hashOfMetadataFromEpoch := Blake3(newEpochSeed)
 
 	// Collect validator data and total stake (uint64)
-	validatorsExtendedData := make([]ValidatorData, 0, len(epochHandler.ValidatorsRegistry))
+	validatorsExtendedData := make([]ValidatorData, 0, len(epochHandler.AnchorsRegistry))
 
 	var totalStakeSum uint64 = 0
 
-	for _, validatorPubKey := range epochHandler.ValidatorsRegistry {
+	for _, validatorPubKey := range epochHandler.AnchorsRegistry {
 
 		validatorData := GetValidatorFromApprovementThreadState(validatorPubKey)
 
@@ -187,12 +157,12 @@ func SetLeadersSequence(epochHandler *structures.EpochDataHandler, epochSeed str
 	hashOfMetadataFromOldEpoch := Blake3(epochSeed)
 
 	// Change order of validators pseudo-randomly
-	validatorsExtendedData := make([]ValidatorData, 0, len(epochHandler.ValidatorsRegistry))
+	validatorsExtendedData := make([]ValidatorData, 0, len(epochHandler.AnchorsRegistry))
 
 	var totalStakeSum uint64 = 0
 
 	// Populate validator data and calculate total stake sum
-	for _, validatorPubKey := range epochHandler.ValidatorsRegistry {
+	for _, validatorPubKey := range epochHandler.AnchorsRegistry {
 
 		validatorData := GetValidatorFromApprovementThreadState(validatorPubKey)
 
@@ -208,7 +178,7 @@ func SetLeadersSequence(epochHandler *structures.EpochDataHandler, epochSeed str
 	}
 
 	// Iterate over the validatorsRegistry and pseudo-randomly choose leaders
-	for i := 0; i < len(epochHandler.ValidatorsRegistry); i++ {
+	for i := 0; i < len(epochHandler.AnchorsRegistry); i++ {
 
 		cumulativeSum := uint64(0)
 
