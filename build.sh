@@ -12,7 +12,7 @@ else
   BOLD=""; RESET=""; YELLOW_BG=""; GREEN_BG=""; RED_BG=""
 fi
 
-banner() { # banner "<bg_color>" "Message..."
+banner() { 
   local bg="$1"; shift
   printf "\n%b%b%s%b\n" "$bg" "$BOLD" "$*" "$RESET"
 }
@@ -23,7 +23,7 @@ ts()  { date +"%Y-%m-%d %H:%M:%S %Z"; }
 # ---------------------------
 # Config
 # ---------------------------
-BIN_NAME="modulr"
+BIN_NAME="modulr-anchor"
 TARGET_OS="${1:-$(go env GOOS)}"
 TARGET_ARCH="${2:-$(go env GOARCH)}"
 
