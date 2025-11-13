@@ -4,11 +4,6 @@ import (
 	"github.com/modulrcloud/modulr-anchors-core/structures"
 )
 
-type AnchorData struct {
-	AnchorPubKey string
-	TotalStake   uint64
-}
-
 func GetQuorumMajority(epochHandler *structures.EpochDataHandler) int {
 
 	quorumSize := len(epochHandler.Quorum)

@@ -3,13 +3,10 @@ package utils
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"net/url"
 	"sync"
 	"time"
 
 	"github.com/modulrcloud/modulr-anchors-core/databases"
-	"github.com/modulrcloud/modulr-anchors-core/globals"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
 
 	"github.com/gorilla/websocket"
@@ -37,83 +34,11 @@ const (
 	POD_READ_WRITE_DEADLINE = 2 * time.Second // timeout for read/write operations for POD (point of distribution)
 )
 
-// Guards open/close & replace of PoD conn
-var POD_MUTEX sync.Mutex
-
-// Single writer guarantee for PoD
-var POD_WRITE_MUTEX sync.Mutex
-
 // Protects concurrent access to wsConnMap (map[string]*websocket.Conn)
 var WEBSOCKET_CONNECTION_MUTEX sync.RWMutex
 
-var WEBSOCKET_CONNECTION_WITH_POINT_OF_DISTRIBUTION *websocket.Conn
-
 // Ensures single writer per websocket connection (gorilla/websocket requirement)
 var WEBSOCKET_WRITE_MUTEX sync.Map // key: pubkey -> *sync.Mutex
-
-func SendWebsocketMessageToPoD(msg []byte) ([]byte, error) {
-
-	for attempt := 1; attempt <= MAX_RETRIES; attempt++ {
-
-		POD_MUTEX.Lock()
-
-		if WEBSOCKET_CONNECTION_WITH_POINT_OF_DISTRIBUTION == nil {
-
-			conn, err := openWebsocketConnectionWithPoD()
-
-			if err != nil {
-
-				POD_MUTEX.Unlock()
-
-				time.Sleep(RETRY_INTERVAL)
-
-				continue
-			}
-
-			WEBSOCKET_CONNECTION_WITH_POINT_OF_DISTRIBUTION = conn
-
-		}
-
-		c := WEBSOCKET_CONNECTION_WITH_POINT_OF_DISTRIBUTION
-
-		POD_MUTEX.Unlock()
-
-		// single writer for this connection
-		POD_WRITE_MUTEX.Lock()
-
-		_ = c.SetWriteDeadline(time.Now().Add(POD_READ_WRITE_DEADLINE))
-
-		err := c.WriteMessage(websocket.TextMessage, msg)
-
-		POD_WRITE_MUTEX.Unlock()
-
-		if err != nil {
-			POD_MUTEX.Lock()
-			_ = c.Close()
-			WEBSOCKET_CONNECTION_WITH_POINT_OF_DISTRIBUTION = nil
-			POD_MUTEX.Unlock()
-			time.Sleep(RETRY_INTERVAL)
-			continue
-		}
-
-		_ = c.SetReadDeadline(time.Now().Add(POD_READ_WRITE_DEADLINE))
-		_, resp, err := c.ReadMessage()
-
-		if err != nil {
-			POD_MUTEX.Lock()
-			_ = c.Close()
-			WEBSOCKET_CONNECTION_WITH_POINT_OF_DISTRIBUTION = nil
-			POD_MUTEX.Unlock()
-			time.Sleep(RETRY_INTERVAL)
-			continue
-		}
-
-		return resp, nil
-	}
-
-	return nil, fmt.Errorf("failed to send message after %d attempts", MAX_RETRIES)
-
-}
 
 func OpenWebsocketConnectionsWithQuorum(quorum []string, wsConnMap map[string]*websocket.Conn) {
 	// Close and remove any existing connections (called once per your note)
@@ -304,20 +229,6 @@ func (qw *QuorumWaiter) reconnectFailed(wsConnMap map[string]*websocket.Conn) {
 	for _, id := range failedCopy {
 		reconnectOnce(id, wsConnMap)
 	}
-}
-
-func openWebsocketConnectionWithPoD() (*websocket.Conn, error) {
-	u, err := url.Parse(globals.CONFIGURATION.PointOfDistributionWS)
-	if err != nil {
-		return nil, fmt.Errorf("invalid url: %w", err)
-	}
-
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("dial error: %w", err)
-	}
-
-	return conn, nil
 }
 
 func (qw *QuorumWaiter) sendMessages(targets []string, msg []byte, wsConnMap map[string]*websocket.Conn) {

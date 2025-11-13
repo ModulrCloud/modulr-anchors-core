@@ -3,7 +3,6 @@ package utils
 import (
 	"encoding/hex"
 	"fmt"
-	"math/rand"
 	"os"
 	"strconv"
 	"sync"
@@ -20,8 +19,6 @@ const (
 	RESET_COLOR      = "\033[0m"
 	RED_COLOR        = "\033[31;1m"
 	DEEP_GREEN_COLOR = "\u001b[38;5;23m"
-	DEEP_GRAY        = "\u001b[38;5;240m"
-	DEEP_MAGENTA     = "\u001b[38;5;90m"
 	DEEP_YELLOW      = "\u001b[38;5;214m"
 	GREEN_COLOR      = "\033[32;1m"
 	YELLOW_COLOR     = "\033[33m"
@@ -31,16 +28,6 @@ const (
 )
 
 var SHUTDOWN_ONCE sync.Once
-
-var RANDOM_GENERATOR = rand.New(rand.NewSource(time.Now().UnixNano()))
-
-func StrToUint8(s string) uint8 {
-	v, err := strconv.ParseUint(s, 10, 8)
-	if err != nil {
-		return 0
-	}
-	return uint8(v)
-}
 
 func GracefulShutdown() {
 
@@ -70,14 +57,6 @@ func LogWithTime(msg, msgColor string) {
 
 }
 
-func LogWithTime2(msg, msgColor string) {
-
-	formattedDate := time.Now().Format("02 January 2006 at 03:04:05 PM")
-
-	fmt.Printf(DEEP_YELLOW+"[%s]"+MAGENTA_COLOR+"(pid:%d)"+msgColor+"  %s\n"+RESET_COLOR, formattedDate, os.Getpid(), msg)
-
-}
-
 func Blake3(data string) string {
 
 	blake3Hash := blake3.Sum256([]byte(data))
@@ -89,12 +68,6 @@ func Blake3(data string) string {
 func GetUTCTimestampInMilliSeconds() int64 {
 
 	return time.Now().UTC().UnixMilli()
-
-}
-
-func GetRandomFromSlice(arr []structures.QuorumMemberData) structures.QuorumMemberData {
-
-	return arr[RANDOM_GENERATOR.Intn(len(arr))]
 
 }
 
