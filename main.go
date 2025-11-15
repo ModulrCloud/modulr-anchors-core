@@ -52,6 +52,7 @@ func main() {
 	statsStringToPrint := fmt.Sprintf("System info \x1b[31mgolang:%s \033[36;1m/\x1b[31m os info:%s # %s # cpu:%d \033[36;1m/\x1b[31m runned as:%s\x1b[0m", runtime.Version(), runtime.GOOS, runtime.GOARCH, runtime.NumCPU(), currentUser.Username)
 
 	utils.LogWithTime(statsStringToPrint, utils.CYAN_COLOR)
+	utils.PrintKernelBanner()
 
 	go signalHandler()
 
