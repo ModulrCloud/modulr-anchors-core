@@ -19,6 +19,8 @@ func createRouter() fasthttp.RequestHandler {
 
 	r.GET("/aggregated_finalization_proof/{blockId}", GetAggregatedFinalizationProof)
 
+	r.POST("/anchor_rotation_proof", AnchorRotationProof)
+
 	return r.Handler
 }
 
