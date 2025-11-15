@@ -65,7 +65,20 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 
 	defer handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
 
-	epochHandler := &handlers.APPROVEMENT_THREAD_METADATA.Handler.EpochDataHandler
+	reqEpochID := parsedRequest.Block.Epoch
+	epochHandlers := handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandlers()
+	var epochHandler *structures.EpochDataHandler
+	for idx := range epochHandlers {
+		candidate := epochHandlers[idx]
+		fullID := candidate.Hash + "#" + strconv.Itoa(candidate.Id)
+		if fullID == reqEpochID {
+			epochHandler = &epochHandlers[idx]
+			break
+		}
+	}
+	if epochHandler == nil {
+		return
+	}
 
 	creatorMutex, allowed := getCreatorMutex(parsedRequest.Block.Creator, epochHandler.AnchorsRegistry)
 
@@ -76,6 +89,10 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 	epochIndex := epochHandler.Id
 
 	epochFullID := epochHandler.Hash + "#" + strconv.Itoa(epochIndex)
+
+	if utils.IsFinalizationProofsDisabled(epochIndex, parsedRequest.Block.Creator) {
+		return
+	}
 
 	localVotingDataForLeader := structures.NewVotingStatTemplate()
 

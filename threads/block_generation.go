@@ -9,126 +9,111 @@ import (
 	"github.com/modulrcloud/modulr-anchors-core/databases"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
 	"github.com/modulrcloud/modulr-anchors-core/handlers"
+	"github.com/modulrcloud/modulr-anchors-core/structures"
 	"github.com/modulrcloud/modulr-anchors-core/utils"
 
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
-func BlocksGenerationThread() {
+const zeroPrevHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
-	for {
+func getGenerationMetadata(epochFullID string) *structures.GenerationThreadMetadataHandler {
+	handlers.GENERATION_THREAD_METADATA.Lock()
+	defer handlers.GENERATION_THREAD_METADATA.Unlock()
 
-		handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
-
-		blockTime := handlers.APPROVEMENT_THREAD_METADATA.Handler.NetworkParameters.BlockTime
-
-		generateBlock()
-
-		handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
-
-		time.Sleep(time.Duration(blockTime) * time.Millisecond)
-
+	if metadata, ok := handlers.GENERATION_THREAD_METADATA.Handlers[epochFullID]; ok {
+		return metadata
 	}
 
+	metadata := &structures.GenerationThreadMetadataHandler{
+		EpochFullId: epochFullID,
+		PrevHash:    zeroPrevHash,
+		NextIndex:   0,
+	}
+
+	handlers.GENERATION_THREAD_METADATA.Handlers[epochFullID] = metadata
+
+	return metadata
 }
 
-func generateBlock() {
+func removeGenerationMetadata(epochFullID string) {
+	handlers.GENERATION_THREAD_METADATA.Lock()
+	defer handlers.GENERATION_THREAD_METADATA.Unlock()
+	delete(handlers.GENERATION_THREAD_METADATA.Handlers, epochFullID)
+}
 
-	epochHandlerRef := &handlers.APPROVEMENT_THREAD_METADATA.Handler.EpochDataHandler
+func BlocksGenerationThread() {
+	for {
+		handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
+		blockTime := handlers.APPROVEMENT_THREAD_METADATA.Handler.NetworkParameters.BlockTime
+		epochHandlers := handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandlers()
+		handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
 
-	if !utils.EpochStillFresh(&handlers.APPROVEMENT_THREAD_METADATA.Handler) {
+		for idx := range epochHandlers {
+			generateBlock(&epochHandlers[idx])
+		}
 
+		time.Sleep(time.Duration(blockTime) * time.Millisecond)
+	}
+}
+
+func generateBlock(epochHandlerRef *structures.EpochDataHandler) {
+	if epochHandlerRef == nil {
 		return
-
 	}
 
 	epochFullID := epochHandlerRef.Hash + "#" + strconv.Itoa(epochHandlerRef.Id)
-
 	epochIndex := epochHandlerRef.Id
 
-	PROOFS_GRABBER_MUTEX.RLock()
+	runtime := ensureFinalizationRuntime(epochHandlerRef)
+	runtime.Lock()
+	acceptedIndex := runtime.Grabber.AcceptedIndex
+	runtime.Unlock()
 
-	// Safe "if" branch to prevent unnecessary blocks generation
+	metadata := getGenerationMetadata(epochFullID)
 
-	shouldGenerateBlocks := handlers.GENERATION_THREAD_METADATA.NextIndex <= PROOFS_GRABBER.AcceptedIndex+1
+	handlers.GENERATION_THREAD_METADATA.Lock()
+	if metadata.EpochFullId != epochFullID {
+		metadata.EpochFullId = epochFullID
+		metadata.PrevHash = zeroPrevHash
+		metadata.NextIndex = 0
+	}
+	shouldGenerateBlocks := metadata.NextIndex <= acceptedIndex+1
+	handlers.GENERATION_THREAD_METADATA.Unlock()
 
-	shouldRotateEpochOnGenerationThread := handlers.GENERATION_THREAD_METADATA.EpochFullId != epochFullID
-
-	if shouldGenerateBlocks || shouldRotateEpochOnGenerationThread {
-
-		PROOFS_GRABBER_MUTEX.RUnlock()
-
-		// Check if <epochFullID> is the same in APPROVEMENT_THREAD and in GENERATION_THREAD
-
-		if shouldRotateEpochOnGenerationThread {
-
-			// Update the index & hash of epoch (by assigning new epoch full ID)
-
-			handlers.GENERATION_THREAD_METADATA.EpochFullId = epochFullID
-
-			// Nullish the index & hash in generation thread for new epoch
-
-			handlers.GENERATION_THREAD_METADATA.PrevHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-
-			handlers.GENERATION_THREAD_METADATA.NextIndex = 0
-
-		}
-
-		// Safe "if" branch to prevent unnecessary blocks generation
-		if !shouldGenerateBlocks {
-			return
-		}
-
-		extraData := make(map[string]string, len(globals.CONFIGURATION.ExtraDataToBlock))
-
-		for key, value := range globals.CONFIGURATION.ExtraDataToBlock {
-			extraData[key] = value
-		}
-
-		blockDbAtomicBatch := new(leveldb.Batch)
-
-		blockCandidate := block_pack.NewBlock(extraData, epochFullID)
-
-		blockHash := blockCandidate.GetHash()
-
-		blockCandidate.SignBlock()
-
-		// BlockID has the following format => epochID(epochIndex):Ed25519_Pubkey:IndexOfBlockInCurrentEpoch
-
-		blockID := strconv.Itoa(epochIndex) + ":" + globals.CONFIGURATION.PublicKey + ":" + strconv.Itoa(blockCandidate.Index)
-
-		utils.LogWithTime("New block generated "+blockID+" (hash: "+blockHash[:8]+"...)", utils.CYAN_COLOR)
-
-		if blockBytes, serializeErr := json.Marshal(blockCandidate); serializeErr == nil {
-
-			handlers.GENERATION_THREAD_METADATA.PrevHash = blockHash
-
-			handlers.GENERATION_THREAD_METADATA.NextIndex++
-
-			if gtBytes, serializeErr2 := json.Marshal(handlers.GENERATION_THREAD_METADATA); serializeErr2 == nil {
-
-				// Store block locally
-
-				blockDbAtomicBatch.Put([]byte(blockID), blockBytes)
-
-				// Update the GENERATION_THREAD after all
-
-				blockDbAtomicBatch.Put([]byte("GT"), gtBytes)
-
-				if err := databases.BLOCKS.Write(blockDbAtomicBatch, nil); err != nil {
-
-					panic("Can't store GT and block candidate")
-
-				}
-
-			}
-
-		}
-
-	} else {
-
-		PROOFS_GRABBER_MUTEX.RUnlock()
-
+	if !shouldGenerateBlocks {
+		return
 	}
 
+	extraData := make(map[string]string, len(globals.CONFIGURATION.ExtraDataToBlock))
+	for key, value := range globals.CONFIGURATION.ExtraDataToBlock {
+		extraData[key] = value
+	}
+
+	blockDbAtomicBatch := new(leveldb.Batch)
+
+	blockCandidate := block_pack.NewBlock(extraData, epochFullID, metadata)
+	blockHash := blockCandidate.GetHash()
+	blockCandidate.SignBlock()
+
+	blockID := strconv.Itoa(epochIndex) + ":" + globals.CONFIGURATION.PublicKey + ":" + strconv.Itoa(blockCandidate.Index)
+	utils.LogWithTime("New block generated "+blockID+" (hash: "+blockHash[:8]+"...)", utils.CYAN_COLOR)
+
+	blockBytes, serializeErr := json.Marshal(blockCandidate)
+	if serializeErr != nil {
+		return
+	}
+
+	handlers.GENERATION_THREAD_METADATA.Lock()
+	metadata.PrevHash = blockHash
+	metadata.NextIndex++
+	handlers.GENERATION_THREAD_METADATA.Unlock()
+
+	if gtBytes, err := json.Marshal(metadata); err == nil {
+		blockDbAtomicBatch.Put([]byte(blockID), blockBytes)
+		blockDbAtomicBatch.Put([]byte("GT:"+epochFullID), gtBytes)
+		if err := databases.BLOCKS.Write(blockDbAtomicBatch, nil); err != nil {
+			panic("Can't store GT and block candidate")
+		}
+	}
 }

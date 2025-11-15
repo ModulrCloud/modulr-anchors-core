@@ -7,7 +7,7 @@ import (
 
 	"github.com/modulrcloud/modulr-anchors-core/cryptography"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
-	"github.com/modulrcloud/modulr-anchors-core/handlers"
+	"github.com/modulrcloud/modulr-anchors-core/structures"
 	"github.com/modulrcloud/modulr-anchors-core/utils"
 )
 
@@ -40,14 +40,14 @@ func formatExtraData(extraData map[string]string) string {
 	return strings.Join(parts, ",")
 }
 
-func NewBlock(extraData map[string]string, epochFullID string) *Block {
+func NewBlock(extraData map[string]string, epochFullID string, metadata *structures.GenerationThreadMetadataHandler) *Block {
 	return &Block{
 		Creator:   globals.CONFIGURATION.PublicKey,
 		Time:      utils.GetUTCTimestampInMilliSeconds(),
 		Epoch:     epochFullID,
 		ExtraData: extraData,
-		Index:     handlers.GENERATION_THREAD_METADATA.NextIndex,
-		PrevHash:  handlers.GENERATION_THREAD_METADATA.PrevHash,
+		Index:     metadata.NextIndex,
+		PrevHash:  metadata.PrevHash,
 		Sig:       "",
 	}
 }

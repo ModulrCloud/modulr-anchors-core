@@ -18,6 +18,8 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
+const zeroPrevHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
 func RunAnchorsChains() {
 
 	if err := prepareAnchorsChains(); err != nil {
@@ -85,27 +87,6 @@ func prepareAnchorsChains() error {
 	databases.APPROVEMENT_THREAD_METADATA = utils.OpenDb("APPROVEMENT_THREAD_METADATA")
 	databases.FINALIZATION_VOTING_STATS = utils.OpenDb("FINALIZATION_VOTING_STATS")
 
-	// Load GT - Generation Thread handler
-	if data, err := databases.BLOCKS.Get([]byte("GT"), nil); err == nil {
-
-		var gtHandler structures.GenerationThreadMetadataHandler
-
-		if err := json.Unmarshal(data, &gtHandler); err != nil {
-			return fmt.Errorf("unmarshal GENERATION_THREAD metadata: %w", err)
-		}
-
-		handlers.GENERATION_THREAD_METADATA = gtHandler
-
-	} else {
-
-		handlers.GENERATION_THREAD_METADATA = structures.GenerationThreadMetadataHandler{
-			EpochFullId: utils.Blake3("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"+globals.GENESIS.NetworkId) + "#-1",
-			PrevHash:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-			NextIndex:   0,
-		}
-
-	}
-
 	if data, err := databases.APPROVEMENT_THREAD_METADATA.Get([]byte("AT"), nil); err == nil {
 
 		var atHandler structures.ApprovementThreadMetadataHandler
@@ -134,6 +115,10 @@ func prepareAnchorsChains() error {
 
 	}
 
+	ensureEpochWindow(&handlers.APPROVEMENT_THREAD_METADATA.Handler)
+	if err := loadGenerationThreadMetadata(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -190,6 +175,8 @@ func loadGenesis() error {
 	// Finally - assign a handler
 
 	handlers.APPROVEMENT_THREAD_METADATA.Handler.EpochDataHandler = epochHandlerForApprovementThread
+	handlers.APPROVEMENT_THREAD_METADATA.Handler.SupportedEpochs = []structures.EpochDataHandler{epochHandlerForApprovementThread}
+	handlers.APPROVEMENT_THREAD_METADATA.Handler.SyncEpochPointers()
 
 	// Store epoch data for API
 
@@ -201,4 +188,68 @@ func loadGenesis() error {
 
 	return nil
 
+}
+
+func ensureEpochWindow(handler *structures.ApprovementThreadMetadataHandler) {
+	if handler.NetworkParameters.MaxEpochsToSupport <= 0 {
+		handler.NetworkParameters.MaxEpochsToSupport = 1
+	}
+	if len(handler.SupportedEpochs) == 0 {
+		handler.SupportedEpochs = []structures.EpochDataHandler{handler.EpochDataHandler}
+	}
+	if len(handler.SupportedEpochs) > handler.NetworkParameters.MaxEpochsToSupport {
+		offset := len(handler.SupportedEpochs) - handler.NetworkParameters.MaxEpochsToSupport
+		toDrop := handler.SupportedEpochs[:offset]
+		handler.SupportedEpochs = handler.SupportedEpochs[offset:]
+		for _, dropped := range toDrop {
+			keyValue := []byte("EPOCH_FINISH:" + strconv.Itoa(dropped.Id))
+			databases.FINALIZATION_VOTING_STATS.Put(keyValue, []byte("TRUE"), nil)
+			epochFullID := dropped.Hash + "#" + strconv.Itoa(dropped.Id)
+			databases.BLOCKS.Delete([]byte("GT:"+epochFullID), nil)
+		}
+	}
+	handler.SyncEpochPointers()
+}
+
+func loadGenerationThreadMetadata() error {
+	epochHandlers := handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandlers()
+	legacyData, legacyErr := databases.BLOCKS.Get([]byte("GT"), nil)
+	legacyUsed := false
+
+	for _, epoch := range epochHandlers {
+		epochFullID := epoch.Hash + "#" + strconv.Itoa(epoch.Id)
+		key := []byte("GT:" + epochFullID)
+		if data, err := databases.BLOCKS.Get(key, nil); err == nil {
+			var gtHandler structures.GenerationThreadMetadataHandler
+			if err := json.Unmarshal(data, &gtHandler); err != nil {
+				return fmt.Errorf("unmarshal GENERATION_THREAD metadata: %w", err)
+			}
+			handlers.GENERATION_THREAD_METADATA.Lock()
+			handlers.GENERATION_THREAD_METADATA.Handlers[epochFullID] = &gtHandler
+			handlers.GENERATION_THREAD_METADATA.Unlock()
+			continue
+		}
+		if !legacyUsed && legacyErr == nil {
+			var gtHandler structures.GenerationThreadMetadataHandler
+			if err := json.Unmarshal(legacyData, &gtHandler); err == nil {
+				gtHandler.EpochFullId = epochFullID
+				handlers.GENERATION_THREAD_METADATA.Lock()
+				handlers.GENERATION_THREAD_METADATA.Handlers[epochFullID] = &gtHandler
+				handlers.GENERATION_THREAD_METADATA.Unlock()
+				legacyUsed = true
+				continue
+			}
+		}
+		handlers.GENERATION_THREAD_METADATA.Lock()
+		if _, ok := handlers.GENERATION_THREAD_METADATA.Handlers[epochFullID]; !ok {
+			handlers.GENERATION_THREAD_METADATA.Handlers[epochFullID] = &structures.GenerationThreadMetadataHandler{
+				EpochFullId: epochFullID,
+				PrevHash:    zeroPrevHash,
+				NextIndex:   0,
+			}
+		}
+		handlers.GENERATION_THREAD_METADATA.Unlock()
+	}
+
+	return nil
 }
