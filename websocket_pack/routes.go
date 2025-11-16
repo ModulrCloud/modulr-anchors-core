@@ -17,23 +17,7 @@ import (
 	"github.com/lxzan/gws"
 )
 
-// blockCreatorMutexRegistry keeps a dedicated mutex for each block creator to
-// make sure each creator can only request a single finalization proof at a time.
-var blockCreatorMutexRegistry = struct {
-	sync.RWMutex
-	data map[string]*sync.Mutex
-}{
-	data: make(map[string]*sync.Mutex),
-}
-
-func getCreatorMutex(creator string, anchorsRegistry []string) (*sync.Mutex, bool) {
-	blockCreatorMutexRegistry.RLock()
-	mutex, ok := blockCreatorMutexRegistry.data[creator]
-	blockCreatorMutexRegistry.RUnlock()
-	if ok {
-		return mutex, true
-	}
-
+func getCreatorMutex(epochIndex int, creator string, anchorsRegistry []string) (*sync.Mutex, bool) {
 	allowed := false
 	for _, anchor := range anchorsRegistry {
 		if anchor == creator {
@@ -44,15 +28,7 @@ func getCreatorMutex(creator string, anchorsRegistry []string) (*sync.Mutex, boo
 	if !allowed {
 		return nil, false
 	}
-
-	blockCreatorMutexRegistry.Lock()
-	defer blockCreatorMutexRegistry.Unlock()
-	if mutex, ok = blockCreatorMutexRegistry.data[creator]; ok {
-		return mutex, true
-	}
-	mutex = &sync.Mutex{}
-	blockCreatorMutexRegistry.data[creator] = mutex
-	return mutex, true
+	return utils.GetBlockCreatorMutex(epochIndex, creator), true
 }
 
 func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *gws.Conn) {
@@ -80,13 +56,13 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 		return
 	}
 
-	creatorMutex, allowed := getCreatorMutex(parsedRequest.Block.Creator, epochHandler.AnchorsRegistry)
+	epochIndex := epochHandler.Id
+
+	creatorMutex, allowed := getCreatorMutex(epochIndex, parsedRequest.Block.Creator, epochHandler.AnchorsRegistry)
 
 	if !allowed {
 		return
 	}
-
-	epochIndex := epochHandler.Id
 
 	epochFullID := epochHandler.Hash + "#" + strconv.Itoa(epochIndex)
 

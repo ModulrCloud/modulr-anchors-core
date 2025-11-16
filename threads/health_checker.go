@@ -44,30 +44,36 @@ func HealthCheckerThread() {
 }
 
 func checkCreatorsHealth() {
-	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
-	epochHandler := handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandler()
-	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
+    handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
+    epochHandlers := handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandlers()
+    handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
 
-	if len(epochHandler.AnchorsRegistry) == 0 {
-		return
-	}
+    if len(epochHandlers) == 0 {
+            return
+    }
 
-	for _, creator := range epochHandler.AnchorsRegistry {
-		if utils.IsFinalizationProofsDisabled(epochHandler.Id, creator) {
-			continue
-		}
+    for _, epochHandler := range epochHandlers {
+            if len(epochHandler.AnchorsRegistry) == 0 {
+                    continue
+            }
 
-		votingStat, err := fetchCreatorVotingStat(epochHandler.Id, creator)
-		if err != nil {
-			utils.LogWithTime(
-				fmt.Sprintf("health checker: failed to read voting stats for %s in epoch %d: %v", creator, epochHandler.Id, err),
-				utils.YELLOW_COLOR,
-			)
-			continue
-		}
+            for _, creator := range epochHandler.AnchorsRegistry {
+                    if utils.IsFinalizationProofsDisabled(epochHandler.Id, creator) {
+                            continue
+                    }
 
-		evaluateCreatorProgress(epochHandler.Id, creator, votingStat)
-	}
+                    votingStat, err := fetchCreatorVotingStat(epochHandler.Id, creator)
+                    if err != nil {
+                            utils.LogWithTime(
+                                    fmt.Sprintf("health checker: failed to read voting stats for %s in epoch %d: %v", creator, epochHandler.Id, err),
+                                    utils.YELLOW_COLOR,
+                            )
+                            continue
+                    }
+
+                    evaluateCreatorProgress(epochHandler.Id, creator, votingStat)
+            }
+    }
 }
 
 func evaluateCreatorProgress(epochID int, creator string, current structures.VotingStat) {
