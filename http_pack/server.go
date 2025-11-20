@@ -22,6 +22,7 @@ func createRouter() fasthttp.RequestHandler {
 	r.POST("/anchor_rotation_proof", AnchorRotationProof)
 
 	r.POST("/accept_extra_data", AcceptExtraData)
+	r.POST("/accept_leader_finalization_data", AcceptLeaderFinalizationData)
 
 	return r.Handler
 }
