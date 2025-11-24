@@ -69,6 +69,39 @@ func formatExtraData(extraData structures.BlockExtraData) string {
 		}
 	}
 
+	if len(extraData.LeaderFinalizationProofs) > 0 {
+		proofs := make([]structures.LeaderFinalizationProofBundle, len(extraData.LeaderFinalizationProofs))
+		copy(proofs, extraData.LeaderFinalizationProofs)
+		sort.Slice(proofs, func(i, j int) bool {
+			if proofs[i].ChainId != proofs[j].ChainId {
+				return proofs[i].ChainId < proofs[j].ChainId
+			}
+			if proofs[i].Leader != proofs[j].Leader {
+				return proofs[i].Leader < proofs[j].Leader
+			}
+			return proofs[i].VotingStat.Index < proofs[j].VotingStat.Index
+		})
+		for _, proof := range proofs {
+			signers := make([]string, 0, len(proof.Signatures))
+			for signer := range proof.Signatures {
+				signers = append(signers, signer)
+			}
+			sort.Strings(signers)
+			sigParts := make([]string, 0, len(signers))
+			for _, signer := range signers {
+				sigParts = append(sigParts, signer+"="+proof.Signatures[signer])
+			}
+			parts = append(parts, fmt.Sprintf(
+				"leader_finalization:%s:%s:%d:%s:%s",
+				proof.ChainId,
+				proof.Leader,
+				proof.VotingStat.Index,
+				proof.VotingStat.Hash,
+				strings.Join(sigParts, "|"),
+			))
+		}
+	}
+
 	return strings.Join(parts, ",")
 }
 
