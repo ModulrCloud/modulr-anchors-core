@@ -52,8 +52,18 @@ func EpochRotationThread() {
 		}
 
 		keyBytes := []byte("EPOCH_HANDLER:" + strconv.Itoa(epochHandlerRef.Id))
-		valBytes, _ := json.Marshal(epochHandlerRef)
-		databases.EPOCH_DATA.Put(keyBytes, valBytes, nil)
+
+		valBytes, marshalErr := json.Marshal(epochHandlerRef)
+		if marshalErr != nil {
+			handlers.APPROVEMENT_THREAD_METADATA.RWMutex.Unlock()
+			globals.FLOOD_PREVENTION_FLAG_FOR_ROUTES.Store(true)
+			panic("Failed to marshal epoch handler: " + marshalErr.Error())
+		}
+		if err := databases.EPOCH_DATA.Put(keyBytes, valBytes, nil); err != nil {
+			handlers.APPROVEMENT_THREAD_METADATA.RWMutex.Unlock()
+			globals.FLOOD_PREVENTION_FLAG_FOR_ROUTES.Store(true)
+			panic("Failed to store epoch handler: " + err.Error())
+		}
 
 		atomicBatch := new(leveldb.Batch)
 
@@ -74,11 +84,15 @@ func EpochRotationThread() {
 			dropped := handlerRef.SupportedEpochs[0]
 			handlerRef.SupportedEpochs = handlerRef.SupportedEpochs[1:]
 			keyValue := []byte("EPOCH_FINISH:" + strconv.Itoa(dropped.Id))
-			databases.FINALIZATION_VOTING_STATS.Put(keyValue, []byte("TRUE"), nil)
+			if err := databases.FINALIZATION_VOTING_STATS.Put(keyValue, []byte("TRUE"), nil); err != nil {
+				panic("Failed to mark epoch as finished: " + err.Error())
+			}
 			removeFinalizationRuntime(dropped.Id)
 			epochFullID := dropped.Hash + "#" + strconv.Itoa(dropped.Id)
 			removeGenerationMetadata(epochFullID)
-			databases.BLOCKS.Delete([]byte("GT:"+epochFullID), nil)
+			if err := databases.BLOCKS.Delete([]byte("GT:"+epochFullID), nil); err != nil {
+				utils.LogWithTime("Failed to delete generation metadata: "+err.Error(), utils.RED_COLOR)
+			}
 		}
 
 		handlerRef.SyncEpochPointers()

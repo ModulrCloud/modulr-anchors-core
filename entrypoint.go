@@ -185,9 +185,15 @@ func loadGenesis() error {
 
 	currentEpochDataHandler := handlers.APPROVEMENT_THREAD_METADATA.Handler.EpochDataHandler
 
-	jsonedCurrentEpochDataHandler, _ := json.Marshal(currentEpochDataHandler)
+	jsonedCurrentEpochDataHandler, err := json.Marshal(currentEpochDataHandler)
 
-	databases.EPOCH_DATA.Put([]byte("EPOCH_HANDLER:"+strconv.Itoa(currentEpochDataHandler.Id)), jsonedCurrentEpochDataHandler, nil)
+	if err != nil {
+		return fmt.Errorf("marshal genesis epoch handler: %w", err)
+	}
+
+	if err := databases.EPOCH_DATA.Put([]byte("EPOCH_HANDLER:"+strconv.Itoa(currentEpochDataHandler.Id)), jsonedCurrentEpochDataHandler, nil); err != nil {
+		return fmt.Errorf("store genesis epoch handler: %w", err)
+	}
 
 	return nil
 
