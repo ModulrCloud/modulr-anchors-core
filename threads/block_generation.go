@@ -104,14 +104,14 @@ func generateBlock(epochHandlerRef *structures.EpochDataHandler) {
 		return
 	}
 
-	fields := make(map[string]string, len(globals.CONFIGURATION.ExtraDataToBlock))
+	restData := make(map[string]string, len(globals.CONFIGURATION.ExtraDataToBlock))
 
 	for key, value := range globals.CONFIGURATION.ExtraDataToBlock {
-		fields[key] = value
+		restData[key] = value
 	}
 
-	extraData := structures.BlockExtraData{
-		Fields:                   fields,
+	extraData := block_pack.ExtraDataToBlock{
+		Rest:                     restData,
 		RotationProofs:           globals.DrainRotationProofsFromMempool(),
 		LeaderFinalizationProofs: globals.DrainLeaderFinalizationProofsFromMempool(),
 	}

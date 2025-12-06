@@ -12,16 +12,16 @@ import (
 )
 
 type Block struct {
-	Creator   string                    `json:"creator"`
-	Time      int64                     `json:"time"`
-	Epoch     string                    `json:"epoch"`
-	ExtraData structures.BlockExtraData `json:"extraData"`
-	Index     int                       `json:"index"`
-	PrevHash  string                    `json:"prevHash"`
-	Sig       string                    `json:"sig"`
+	Creator   string           `json:"creator"`
+	Time      int64            `json:"time"`
+	Epoch     string           `json:"epoch"`
+	ExtraData ExtraDataToBlock `json:"extraData"`
+	Index     int              `json:"index"`
+	PrevHash  string           `json:"prevHash"`
+	Sig       string           `json:"sig"`
 }
 
-func NewBlock(extraData structures.BlockExtraData, epochFullID string, metadata *structures.GenerationThreadMetadataHandler) *Block {
+func NewBlock(extraData ExtraDataToBlock, epochFullID string, metadata *structures.GenerationThreadMetadataHandler) *Block {
 	return &Block{
 		Creator:   globals.CONFIGURATION.PublicKey,
 		Time:      utils.GetUTCTimestampInMilliSeconds(),
@@ -34,7 +34,9 @@ func NewBlock(extraData structures.BlockExtraData, epochFullID string, metadata 
 }
 
 func (block *Block) GetHash() string {
+
 	jsonedExtraData, err := json.Marshal(block.ExtraData)
+
 	if err != nil {
 		panic("GetHash: failed to marshal extraData: " + err.Error())
 	}
