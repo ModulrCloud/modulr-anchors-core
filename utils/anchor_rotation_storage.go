@@ -15,7 +15,7 @@ func aggregatedAnchorRotationProofKey(epoch int, creator string) []byte {
 	return []byte("AARP:" + strconv.Itoa(epoch) + ":" + creator)
 }
 
-func StoreAggregatedAnchorRotationProof(proof structures.AggregatedAnchorRotaionProof) error {
+func StoreAggregatedAnchorRotationProof(proof structures.AggregatedAnchorRotationProof) error {
 	payload, err := json.Marshal(proof)
 	if err != nil {
 		return err
@@ -23,8 +23,8 @@ func StoreAggregatedAnchorRotationProof(proof structures.AggregatedAnchorRotaion
 	return databases.FINALIZATION_VOTING_STATS.Put(aggregatedAnchorRotationProofKey(proof.EpochIndex, proof.Anchor), payload, nil)
 }
 
-func LoadAggregatedAnchorRotationProof(epoch int, creator string) (structures.AggregatedAnchorRotaionProof, error) {
-	var proof structures.AggregatedAnchorRotaionProof
+func LoadAggregatedAnchorRotationProof(epoch int, creator string) (structures.AggregatedAnchorRotationProof, error) {
+	var proof structures.AggregatedAnchorRotationProof
 	raw, err := databases.FINALIZATION_VOTING_STATS.Get(aggregatedAnchorRotationProofKey(epoch, creator), nil)
 	if err != nil {
 		if errors.Is(err, ldbErrors.ErrNotFound) {

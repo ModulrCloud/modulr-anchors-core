@@ -111,7 +111,7 @@ func processCreatorRotation(epochHandler *structures.EpochDataHandler, creator s
 		return true, false
 	}
 
-	proof := structures.AggregatedAnchorRotaionProof{
+	proof := structures.AggregatedAnchorRotationProof{
 		EpochIndex: epochHandler.Id,
 		Anchor:     creator,
 		VotingStat: stat,
@@ -194,8 +194,8 @@ func postJSON(url string, payload []byte) ([]byte, int, error) {
 	return body, resp.StatusCode, nil
 }
 
-func broadcastRotationProof(epochHandler *structures.EpochDataHandler, proof structures.AggregatedAnchorRotaionProof) {
-	payload := structures.AcceptAggregatedAnchorRotationProofRequest{AggregatedRotationProofs: []structures.AggregatedAnchorRotaionProof{proof}}
+func broadcastRotationProof(epochHandler *structures.EpochDataHandler, proof structures.AggregatedAnchorRotationProof) {
+	payload := structures.AcceptAggregatedAnchorRotationProofRequest{AggregatedRotationProofs: []structures.AggregatedAnchorRotationProof{proof}}
 	body, _ := json.Marshal(payload)
 	for _, member := range utils.GetQuorumUrlsAndPubkeys(epochHandler) {
 		if member.PubKey == globals.CONFIGURATION.PublicKey || member.Url == "" {

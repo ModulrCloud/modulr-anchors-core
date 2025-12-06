@@ -9,18 +9,18 @@ import (
 
 type Mempool struct {
 	sync.Mutex
-	aggregatedAnchorRotationProofs     map[string]structures.AggregatedAnchorRotaionProof      // proof for modulr-anchors-core logic to rotate anchors on demand
+	aggregatedAnchorRotationProofs     map[string]structures.AggregatedAnchorRotationProof     // proof for modulr-anchors-core logic to rotate anchors on demand
 	aggregatedLeaderFinalizationProofs map[string]structures.AggregatedLeaderFinalizationProof // proof for modulr-core logic to finalize last block by leader
 }
 
 // Mempool to store two types of proofs:
 
 var MEMPOOL = Mempool{
-	aggregatedAnchorRotationProofs:     make(map[string]structures.AggregatedAnchorRotaionProof),
+	aggregatedAnchorRotationProofs:     make(map[string]structures.AggregatedAnchorRotationProof),
 	aggregatedLeaderFinalizationProofs: make(map[string]structures.AggregatedLeaderFinalizationProof),
 }
 
-func anchorMempoolKey(proof structures.AggregatedAnchorRotaionProof) string {
+func anchorMempoolKey(proof structures.AggregatedAnchorRotationProof) string {
 	return fmt.Sprintf("%d:%s:%d", proof.EpochIndex, proof.Anchor, proof.VotingStat.Index)
 }
 
@@ -28,7 +28,7 @@ func leaderMempoolKey(proof structures.AggregatedLeaderFinalizationProof) string
 	return fmt.Sprintf("%d:%s:%d", proof.EpochIndex, proof.Leader, proof.VotingStat.Index)
 }
 
-func (mempool *Mempool) AddAggregatedAnchorRotationProof(proof structures.AggregatedAnchorRotaionProof) {
+func (mempool *Mempool) AddAggregatedAnchorRotationProof(proof structures.AggregatedAnchorRotationProof) {
 
 	mempool.Lock()
 
@@ -54,7 +54,7 @@ func (mempool *Mempool) AddAggregatedLeaderFinalizationProof(proof structures.Ag
 
 }
 
-func (mempool *Mempool) DrainAggregatedAnchorRotationProofs() []structures.AggregatedAnchorRotaionProof {
+func (mempool *Mempool) DrainAggregatedAnchorRotationProofs() []structures.AggregatedAnchorRotationProof {
 
 	mempool.Lock()
 	defer mempool.Unlock()
@@ -63,13 +63,13 @@ func (mempool *Mempool) DrainAggregatedAnchorRotationProofs() []structures.Aggre
 		return nil
 	}
 
-	proofs := make([]structures.AggregatedAnchorRotaionProof, 0, len(mempool.aggregatedAnchorRotationProofs))
+	proofs := make([]structures.AggregatedAnchorRotationProof, 0, len(mempool.aggregatedAnchorRotationProofs))
 
 	for _, proof := range mempool.aggregatedAnchorRotationProofs {
 		proofs = append(proofs, proof)
 	}
 
-	mempool.aggregatedAnchorRotationProofs = make(map[string]structures.AggregatedAnchorRotaionProof)
+	mempool.aggregatedAnchorRotationProofs = make(map[string]structures.AggregatedAnchorRotationProof)
 
 	return proofs
 

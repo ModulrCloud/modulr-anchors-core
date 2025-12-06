@@ -42,7 +42,7 @@ func (afp AggregatedFinalizationProof) MarshalJSON() ([]byte, error) {
 	return json.Marshal(aux)
 }
 
-type AggregatedAnchorRotaionProof struct {
+type AggregatedAnchorRotationProof struct {
 	EpochIndex int               `json:"epochIndex"`
 	Anchor     string            `json:"anchor"`
 	VotingStat VotingStat        `json:"votingStat"`

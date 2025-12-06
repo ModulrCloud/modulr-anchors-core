@@ -8,13 +8,13 @@ import (
 )
 
 type ExtraDataToBlock struct {
-	AggregatedAnchorRotationProofs     []structures.AggregatedAnchorRotaionProof      `json:"aggregatedAnchorRotationProofs,omitempty"`
+	AggregatedAnchorRotationProofs     []structures.AggregatedAnchorRotationProof     `json:"aggregatedAnchorRotationProofs,omitempty"`
 	AggregatedLeaderFinalizationProofs []structures.AggregatedLeaderFinalizationProof `json:"aggregatedLeaderFinalizationProofs,omitempty"`
 	Rest                               map[string]string                              `json:"rest,omitempty"`
 }
 
 type blockExtraDataAlias struct {
-	AggregatedAnchorRotationProofs     []structures.AggregatedAnchorRotaionProof      `json:"aggregatedAnchorRotationProofs,omitempty"`
+	AggregatedAnchorRotationProofs     []structures.AggregatedAnchorRotationProof     `json:"aggregatedAnchorRotationProofs,omitempty"`
 	AggregatedLeaderFinalizationProofs []structures.AggregatedLeaderFinalizationProof `json:"aggregatedLeaderFinalizationProofs,omitempty"`
 	Rest                               map[string]string                              `json:"rest,omitempty"`
 }

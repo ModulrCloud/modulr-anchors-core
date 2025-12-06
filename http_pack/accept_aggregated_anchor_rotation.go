@@ -59,7 +59,7 @@ func AcceptAggregatedAnchorRotationProofs(ctx *fasthttp.RequestCtx) {
 
 }
 
-func storeAggregatedRotationProofFromRequest(proof structures.AggregatedAnchorRotaionProof) error {
+func storeAggregatedRotationProofFromRequest(proof structures.AggregatedAnchorRotationProof) error {
 
 	epochHandler := utils.GetEpochHandlerByID(proof.EpochIndex)
 
@@ -108,7 +108,7 @@ func storeAggregatedRotationProofFromRequest(proof structures.AggregatedAnchorRo
 
 }
 
-func verifyAggregatedAnchorRotationProof(proof *structures.AggregatedAnchorRotaionProof, epochHandler *structures.EpochDataHandler) error {
+func verifyAggregatedAnchorRotationProof(proof *structures.AggregatedAnchorRotationProof, epochHandler *structures.EpochDataHandler) error {
 	if proof.VotingStat.Index < 0 || proof.VotingStat.Hash == "" {
 		return fmt.Errorf("invalid voting stat")
 	}

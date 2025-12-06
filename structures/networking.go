@@ -18,7 +18,7 @@ type AnchorRotationProofResponse struct {
 }
 
 type AcceptAggregatedAnchorRotationProofRequest struct {
-	AggregatedRotationProofs []AggregatedAnchorRotaionProof `json:"aggregatedAnchorRotationProofs"`
+	AggregatedRotationProofs []AggregatedAnchorRotationProof `json:"aggregatedAnchorRotationProofs"`
 }
 
 type AcceptAnchorRotationProofResponse struct {
