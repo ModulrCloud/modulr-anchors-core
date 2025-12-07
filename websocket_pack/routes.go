@@ -36,6 +36,25 @@ func getBlockCreatorMutex(epochIndex int, creator string, anchorsRegistry []stri
 
 }
 
+func processAnchorRotationProofsAsync(block block_pack.Block, epochHandler *structures.EpochDataHandler, blockId string) {
+
+	if len(block.ExtraData.AggregatedAnchorRotationProofs) == 0 || epochHandler == nil {
+		return
+	}
+
+	go func() {
+		for _, proof := range block.ExtraData.AggregatedAnchorRotationProofs {
+			proof := proof
+			if err := utils.VerifyAggregatedAnchorRotationProof(&proof, epochHandler); err != nil {
+				continue
+			}
+			if err := utils.StoreAggregatedAnchorRotationProofPresence(proof.EpochIndex, block.Creator, proof.Anchor, blockId); err != nil {
+				continue
+			}
+		}
+	}()
+}
+
 func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *gws.Conn) {
 
 	if !globals.FLOOD_PREVENTION_FLAG_FOR_ROUTES.Load() {
@@ -139,6 +158,8 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 					err = databases.BLOCKS.Put([]byte(proposedBlockId), blockBytes, nil)
 
 					if err == nil {
+
+						processAnchorRotationProofsAsync(parsedRequest.Block, epochHandler, proposedBlockId)
 
 						afpBytes, err := json.Marshal(parsedRequest.PreviousBlockAfp)
 
