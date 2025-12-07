@@ -31,6 +31,20 @@ func StoreAggregatedAnchorRotationProofPresence(epoch int, blockCreator, rotated
 	return databases.FINALIZATION_VOTING_STATS.Put(aggregatedAnchorRotationProofPresenceKey(epoch, blockCreator, rotatedAnchor), []byte(blockId), nil)
 }
 
+func LoadAggregatedAnchorRotationProofPresence(epoch int, blockCreator, rotatedAnchor string) (string, error) {
+	raw, err := databases.FINALIZATION_VOTING_STATS.Get(aggregatedAnchorRotationProofPresenceKey(epoch, blockCreator, rotatedAnchor), nil)
+	if err != nil {
+		if errors.Is(err, ldbErrors.ErrNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	if len(raw) == 0 {
+		return "", nil
+	}
+	return string(raw), nil
+}
+
 func LoadAggregatedAnchorRotationProof(epoch int, creator string) (structures.AggregatedAnchorRotationProof, error) {
 	var proof structures.AggregatedAnchorRotationProof
 	raw, err := databases.FINALIZATION_VOTING_STATS.Get(aggregatedAnchorRotationProofKey(epoch, creator), nil)
