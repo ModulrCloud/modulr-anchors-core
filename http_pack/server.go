@@ -20,7 +20,7 @@ func createRouter() fasthttp.RequestHandler {
 	r.GET("/block/{id}", routes.GetBlockById)
 	r.GET("/aggregated_finalization_proof/{blockId}", routes.GetAggregatedFinalizationProof)
 
-  r.GET("/sequence_alignment_data/{epochIndex}/{anchorIndex}", routes.GetSequenceAlignmentData)
+	r.GET("/sequence_alignment_data/{epochIndex}/{anchorIndex}", routes.GetSequenceAlignmentData)
 
 	// Route to request ARP (anchor rotation proof), then aggregated them and get AARP(Aggregated Anchor Rotation Proof)
 	r.POST("/request_anchor_rotation_proof", routes.RequestAnchorRotationProof)
