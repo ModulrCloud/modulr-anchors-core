@@ -119,8 +119,8 @@ func GetSequenceAlignmentData(ctx *fasthttp.RequestCtx) {
 			}
 
 			candidateData[rotatedIndex] = structures.SequenceAlignmentAnchorData{
-				AARP:         proof,
-				FoundInBlock: blockIndex,
+				AggregatedAnchorRotationProof: proof,
+				FoundInBlock:                  blockIndex,
 			}
 
 			if blockIndex > currentMax {

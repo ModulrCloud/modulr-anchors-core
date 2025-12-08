@@ -1,8 +1,8 @@
 package structures
 
 type SequenceAlignmentAnchorData struct {
-	AARP         AggregatedAnchorRotationProof `json:"aarp"`
-	FoundInBlock int                           `json:"foundInBlock"`
+	AggregatedAnchorRotationProof AggregatedAnchorRotationProof `json:"aarp"`
+	FoundInBlock                  int                           `json:"foundInBlock"`
 }
 
 type SequenceAlignmentDataResponse struct {
