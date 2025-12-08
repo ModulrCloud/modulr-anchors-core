@@ -26,8 +26,22 @@ func GetSequenceAlignmentData(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	anchorIndexRaw := string(ctx.QueryArgs().Peek("anchorIndex"))
-	if anchorIndexRaw == "" {
+	epochIndexRaw := fmt.Sprint(ctx.UserValue("epochIndex"))
+	if epochIndexRaw == "<nil>" || epochIndexRaw == "" {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.Write([]byte(`{"err":"missing epochIndex"}`))
+		return
+	}
+
+	epochIndex, err := strconv.Atoi(epochIndexRaw)
+	if err != nil || epochIndex < 0 {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.Write([]byte(`{"err":"invalid epochIndex"}`))
+		return
+	}
+
+	anchorIndexRaw := fmt.Sprint(ctx.UserValue("anchorIndex"))
+	if anchorIndexRaw == "<nil>" || anchorIndexRaw == "" {
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
 		ctx.Write([]byte(`{"err":"missing anchorIndex"}`))
 		return
@@ -41,10 +55,9 @@ func GetSequenceAlignmentData(ctx *fasthttp.RequestCtx) {
 	}
 
 	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
-	epochHandler := handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandler()
+	anchors := handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandler().AnchorsRegistry
 	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
 
-	anchors := epochHandler.AnchorsRegistry
 	if anchorIndex >= len(anchors)-1 {
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
 		ctx.Write([]byte(`{"err":"anchorIndex out of range"}`))
@@ -71,7 +84,7 @@ func GetSequenceAlignmentData(ctx *fasthttp.RequestCtx) {
 		allFound := true
 
 		for _, rotated := range requiredAnchors {
-			blockID, err := utils.LoadAggregatedAnchorRotationProofPresence(epochHandler.Id, creator, rotated)
+			blockID, err := utils.LoadAggregatedAnchorRotationProofPresence(epochIndex, creator, rotated)
 			if err != nil {
 				ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 				ctx.Write([]byte(fmt.Sprintf(`{"err":"failed to read AARP presence: %s"}`, err.Error())))
@@ -88,7 +101,7 @@ func GetSequenceAlignmentData(ctx *fasthttp.RequestCtx) {
 				break
 			}
 
-			proof, err := utils.LoadAggregatedAnchorRotationProof(epochHandler.Id, rotated)
+			proof, err := utils.LoadAggregatedAnchorRotationProof(epochIndex, rotated)
 			if err != nil {
 				ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 				ctx.Write([]byte(fmt.Sprintf(`{"err":"failed to load AARP: %s"}`, err.Error())))
@@ -137,7 +150,7 @@ func GetSequenceAlignmentData(ctx *fasthttp.RequestCtx) {
 		Anchors:            foundBlocks,
 	}
 
-	if afp, err := loadAggregatedFinalizationProof(epochHandler.Id, foundCreator, maxFoundIndex+1); err == nil && afp != nil {
+	if afp, err := loadAggregatedFinalizationProof(epochIndex, foundCreator, maxFoundIndex+1); err == nil && afp != nil {
 		response.Afp = afp
 	}
 
