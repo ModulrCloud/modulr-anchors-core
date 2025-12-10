@@ -91,6 +91,7 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 	}
 
 	epochFullID := epochHandler.Hash + "#" + strconv.Itoa(epochIndex)
+	epochIndexStr := strconv.Itoa(epochIndex)
 
 	if utils.IsFinalizationProofsDisabled(epochIndex, parsedRequest.Block.Creator) {
 		return
@@ -193,7 +194,7 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 
 									}
 
-									dataToSign += strings.Join([]string{prevBlockHash, proposedBlockId, proposedBlockHash, epochFullID}, ":")
+									dataToSign += strings.Join([]string{prevBlockHash, proposedBlockId, proposedBlockHash, epochIndexStr}, ":")
 
 									response := WsFinalizationProofResponse{
 										Voter:             globals.CONFIGURATION.PublicKey,

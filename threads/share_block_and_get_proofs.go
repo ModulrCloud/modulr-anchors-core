@@ -69,7 +69,7 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 
 	runtime.Lock()
 	defer runtime.Unlock()
-	epochFullId := epochHandler.Hash + "#" + strconv.Itoa(epochHandler.Id)
+	epochIndexStr := strconv.Itoa(epochHandler.Id)
 	blockIndexToHunt := strconv.Itoa(runtime.Grabber.AcceptedIndex + 1)
 	blockIdForHunting := strconv.Itoa(epochHandler.Id) + ":" + globals.CONFIGURATION.PublicKey + ":" + blockIndexToHunt
 	blockIdThatInPointer := strconv.Itoa(epochHandler.Id) + ":" + globals.CONFIGURATION.PublicKey + ":" + strconv.Itoa(runtime.BlockToShare.Index)
@@ -130,7 +130,7 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 
 						dataThatShouldBeSigned := strings.Join(
 
-							[]string{runtime.Grabber.AcceptedHash, runtime.Grabber.HuntingForBlockId, runtime.Grabber.HuntingForBlockHash, epochFullId}, ":",
+							[]string{runtime.Grabber.AcceptedHash, runtime.Grabber.HuntingForBlockId, runtime.Grabber.HuntingForBlockHash, epochIndexStr}, ":",
 						)
 
 						finalizationProofIsOk := slices.Contains(epochHandler.Quorum, parsedFinalizationProof.Voter) && cryptography.VerifySignature(
