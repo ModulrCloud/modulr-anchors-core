@@ -75,7 +75,7 @@ func RequestAnchorRotationProof(ctx *fasthttp.RequestCtx) {
 		respondWithUpgrade(ctx, currentStat)
 		return
 	case proposal.Index == currentStat.Index:
-		handleMatchingProposal(ctx, currentStat, proposal, epochHandler)
+		handleMatchingProposal(ctx, req.Creator, currentStat, proposal, epochHandler)
 		return
 	default:
 		handleUpgradeProposal(ctx, currentStat, proposal, req.EpochIndex, req.Creator, epochHandler)
@@ -93,7 +93,7 @@ func respondWithUpgrade(ctx *fasthttp.RequestCtx, stat structures.VotingStat) {
 	ctx.Write(payload)
 }
 
-func handleMatchingProposal(ctx *fasthttp.RequestCtx, current, proposal structures.VotingStat, epochHandler *structures.EpochDataHandler) {
+func handleMatchingProposal(ctx *fasthttp.RequestCtx, creator string, current, proposal structures.VotingStat, epochHandler *structures.EpochDataHandler) {
 	if current.Index < 0 || current.Hash == "" {
 		ctx.SetStatusCode(fasthttp.StatusConflict)
 		ctx.Write([]byte(`{"err":"no finalized blocks recorded"}`))
@@ -106,7 +106,7 @@ func handleMatchingProposal(ctx *fasthttp.RequestCtx, current, proposal structur
 		return
 	}
 
-	respondWithSignature(ctx, current, epochHandler)
+	respondWithSignature(ctx, creator, current, epochHandler)
 }
 
 func handleUpgradeProposal(ctx *fasthttp.RequestCtx, current, proposal structures.VotingStat, epochIndex int, creator string, epochHandler *structures.EpochDataHandler) {
@@ -123,12 +123,17 @@ func handleUpgradeProposal(ctx *fasthttp.RequestCtx, current, proposal structure
 		return
 	}
 
-	respondWithSignature(ctx, proposal, epochHandler)
+	respondWithSignature(ctx, creator, proposal, epochHandler)
 }
 
-func respondWithSignature(ctx *fasthttp.RequestCtx, stat structures.VotingStat, epochHandler *structures.EpochDataHandler) {
-	epochFullID := epochHandler.Hash + "#" + strconv.Itoa(epochHandler.Id)
-	dataToSign := strings.Join([]string{stat.Afp.PrevBlockHash, stat.Afp.BlockId, stat.Afp.BlockHash, epochFullID}, ":")
+func respondWithSignature(ctx *fasthttp.RequestCtx, anchor string, stat structures.VotingStat, epochHandler *structures.EpochDataHandler) {
+	anchorIndex := slices.Index(epochHandler.AnchorsRegistry, anchor)
+	if anchorIndex < 0 {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.Write([]byte(`{"err":"anchor not part of epoch"}`))
+		return
+	}
+	dataToSign := utils.BuildAnchorRotationProofPayload(anchor, stat.Index, stat.Hash, epochHandler.Id)
 	signature := cryptography.GenerateSignature(globals.CONFIGURATION.PrivateKey, dataToSign)
 	payload, _ := json.Marshal(structures.AnchorRotationProofResponse{
 		Status:     "OK",

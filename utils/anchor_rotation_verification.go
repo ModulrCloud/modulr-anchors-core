@@ -10,6 +10,11 @@ import (
 	"github.com/modulrcloud/modulr-anchors-core/structures"
 )
 
+func BuildAnchorRotationProofPayload(anchor string, blockIndex int, blockHash string, epochIndex int) string {
+
+	return fmt.Sprintf("ANCHOR_ROTATION_PROOF:%s:%d:%s:%d", anchor, blockIndex, blockHash, epochIndex)
+}
+
 func VerifyAggregatedAnchorRotationProof(proof *structures.AggregatedAnchorRotationProof, epochHandler *structures.EpochDataHandler) error {
 
 	if proof.VotingStat.Index < 0 || proof.VotingStat.Hash == "" {
@@ -17,6 +22,9 @@ func VerifyAggregatedAnchorRotationProof(proof *structures.AggregatedAnchorRotat
 	}
 	if proof.VotingStat.Afp.BlockId == "" {
 		return fmt.Errorf("missing AFP blockId")
+	}
+	if slices.Index(epochHandler.AnchorsRegistry, proof.Anchor) < 0 {
+		return fmt.Errorf("anchor %s not found in epoch %d", proof.Anchor, epochHandler.Id)
 	}
 	expectedBlockId := fmt.Sprintf("%d:%s:%d", proof.EpochIndex, proof.Anchor, proof.VotingStat.Index)
 	if !strings.EqualFold(proof.VotingStat.Afp.BlockId, expectedBlockId) {
@@ -34,13 +42,7 @@ func VerifyAggregatedAnchorRotationProof(proof *structures.AggregatedAnchorRotat
 		return fmt.Errorf("AFP index mismatch")
 	}
 
-	epochFullID := epochHandler.Hash + "#" + strconv.Itoa(epochHandler.Id)
-	dataToVerify := strings.Join([]string{
-		proof.VotingStat.Afp.PrevBlockHash,
-		proof.VotingStat.Afp.BlockId,
-		proof.VotingStat.Afp.BlockHash,
-		epochFullID,
-	}, ":")
+	dataToVerify := BuildAnchorRotationProofPayload(proof.Anchor, proof.VotingStat.Index, proof.VotingStat.Hash, proof.EpochIndex)
 
 	quorum := epochHandler.Quorum
 	verified := 0
