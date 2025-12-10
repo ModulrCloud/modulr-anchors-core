@@ -10,9 +10,9 @@ import (
 
 func VerifyAggregatedFinalizationProof(proof *structures.AggregatedFinalizationProof, epochHandler *structures.EpochDataHandler) bool {
 
-	epochFullID := epochHandler.Hash + "#" + strconv.Itoa(epochHandler.Id)
+	epochIndex := strconv.Itoa(epochHandler.Id)
 
-	dataThatShouldBeSigned := strings.Join([]string{proof.PrevBlockHash, proof.BlockId, proof.BlockHash, epochFullID}, ":")
+	dataThatShouldBeSigned := strings.Join([]string{proof.PrevBlockHash, proof.BlockId, proof.BlockHash, epochIndex}, ":")
 
 	majority := GetQuorumMajority(epochHandler)
 
