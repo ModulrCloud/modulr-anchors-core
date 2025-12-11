@@ -20,7 +20,7 @@ func VerifyAggregatedAnchorRotationProof(proof *structures.AggregatedAnchorRotat
 	if proof.VotingStat.Afp.BlockId == "" {
 		return fmt.Errorf("missing AFP blockId")
 	}
-	if slices.Contains(epochHandler.AnchorsRegistry, proof.Anchor) {
+	if !slices.Contains(epochHandler.AnchorsRegistry, proof.Anchor) {
 		return fmt.Errorf("anchor %s not found in epoch %d", proof.Anchor, epochHandler.Id)
 	}
 	expectedBlockId := fmt.Sprintf("%d:%s:%d", proof.EpochIndex, proof.Anchor, proof.VotingStat.Index)
