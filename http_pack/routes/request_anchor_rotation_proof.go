@@ -33,7 +33,7 @@ func RequestAnchorRotationProof(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	if req.EpochIndex < 0 || req.Creator == "" {
+	if req.EpochIndex < 0 || req.ForAnchor == "" {
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
 		ctx.Write([]byte(`{"err":"missing epochIndex or creator"}`))
 		return
@@ -46,23 +46,23 @@ func RequestAnchorRotationProof(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	if !slices.Contains(epochHandler.AnchorsRegistry, req.Creator) {
+	if !slices.Contains(epochHandler.AnchorsRegistry, req.ForAnchor) {
 		ctx.SetStatusCode(fasthttp.StatusNotFound)
 		ctx.Write([]byte(`{"err":"creator not found"}`))
 		return
 	}
 
-	creatorMutex := globals.BLOCK_CREATORS_MUTEX_REGISTRY.GetMutex(req.EpochIndex, req.Creator)
+	creatorMutex := globals.BLOCK_CREATORS_MUTEX_REGISTRY.GetMutex(req.EpochIndex, req.ForAnchor)
 	creatorMutex.Lock()
 	defer creatorMutex.Unlock()
 
-	if !utils.IsFinalizationProofsDisabled(req.EpochIndex, req.Creator) {
+	if !utils.IsFinalizationProofsDisabled(req.EpochIndex, req.ForAnchor) {
 		ctx.SetStatusCode(fasthttp.StatusConflict)
 		ctx.Write([]byte(`{"err":"creator is still healthy"}`))
 		return
 	}
 
-	currentStat, err := utils.ReadVotingStat(req.EpochIndex, req.Creator)
+	currentStat, err := utils.ReadVotingStat(req.EpochIndex, req.ForAnchor)
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 		ctx.Write([]byte(`{"err":"failed to read voting stats"}`))
@@ -75,10 +75,10 @@ func RequestAnchorRotationProof(ctx *fasthttp.RequestCtx) {
 		handlerLocalIsBiggerThanProposalIndex(ctx, currentStat)
 		return
 	case proposal.Index == currentStat.Index:
-		handleMatchingIndexes(ctx, req.Creator, currentStat, proposal, epochHandler)
+		handleMatchingIndexes(ctx, req.ForAnchor, currentStat, proposal, epochHandler)
 		return
 	default:
-		handleProposalIsBiggerThanLocalIndex(ctx, currentStat, proposal, req.EpochIndex, req.Creator, epochHandler)
+		handleProposalIsBiggerThanLocalIndex(ctx, currentStat, proposal, req.EpochIndex, req.ForAnchor, epochHandler)
 		return
 	}
 }
@@ -87,7 +87,6 @@ func handlerLocalIsBiggerThanProposalIndex(ctx *fasthttp.RequestCtx, stat struct
 	ctx.SetStatusCode(fasthttp.StatusConflict)
 	payload, _ := json.Marshal(structures.AnchorRotationProofResponse{
 		Status:     "UPGRADE",
-		Message:    "network progressed further",
 		VotingStat: &stat,
 	})
 	ctx.Write(payload)
@@ -107,7 +106,7 @@ func handleMatchingIndexes(ctx *fasthttp.RequestCtx, creator string, current, pr
 func handleProposalIsBiggerThanLocalIndex(ctx *fasthttp.RequestCtx, current, proposal structures.VotingStat, epochIndex int, creator string, epochHandler *structures.EpochDataHandler) {
 	if err := validateProposalWithBiggerIndex(current, proposal, epochIndex, creator, epochHandler); err != nil {
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
-		payload, _ := json.Marshal(structures.AnchorRotationProofResponse{Status: "ERROR", Message: err.Error()})
+		payload, _ := json.Marshal(structures.AnchorRotationProofResponse{Status: "ERROR"})
 		ctx.Write(payload)
 		return
 	}
@@ -125,9 +124,8 @@ func respondWithSignature(ctx *fasthttp.RequestCtx, anchor string, stat structur
 	dataToSign := utils.BuildAnchorRotationProofPayload(anchor, stat.Index, stat.Hash, epochHandler.Id)
 	signature := cryptography.GenerateSignature(globals.CONFIGURATION.PrivateKey, dataToSign)
 	payload, _ := json.Marshal(structures.AnchorRotationProofResponse{
-		Status:     "OK",
-		Signature:  signature,
-		VotingStat: &stat,
+		Status:    "OK",
+		Signature: signature,
 	})
 	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.Write(payload)

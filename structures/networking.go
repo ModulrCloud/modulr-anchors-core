@@ -2,13 +2,12 @@ package structures
 
 type AnchorRotationProofRequest struct {
 	EpochIndex int        `json:"epochIndex"`
-	Creator    string     `json:"creator"`
+	ForAnchor  string     `json:"forAnchor"`
 	Proposal   VotingStat `json:"proposal"`
 }
 
 type AnchorRotationProofResponse struct {
 	Status     string      `json:"status"`
-	Message    string      `json:"message,omitempty"`
 	Signature  string      `json:"signature,omitempty"`
 	VotingStat *VotingStat `json:"votingStat,omitempty"`
 }

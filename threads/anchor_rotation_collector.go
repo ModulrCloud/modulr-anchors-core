@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/modulrcloud/modulr-anchors-core/cryptography"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
 	"github.com/modulrcloud/modulr-anchors-core/handlers"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
@@ -96,13 +98,13 @@ func processAnchorRotation(epochHandler *structures.EpochDataHandler, anchorPubk
 		return false, false
 	}
 
-	stat, err := utils.ReadVotingStat(epochHandler.Id, anchorPubkey)
+	localVotingStat, err := utils.ReadVotingStat(epochHandler.Id, anchorPubkey)
 	if err != nil {
 		utils.LogWithTime(fmt.Sprintf("anchor rotation: failed to read voting stat for %s in epoch %d: %v", anchorPubkey, epochHandler.Id, err), utils.YELLOW_COLOR)
 		return true, false
 	}
 
-	signatures := collectRotationSignatures(epochHandler, anchorPubkey, stat)
+	signatures := collectRotationSignatures(epochHandler, anchorPubkey, localVotingStat)
 	majority := utils.GetQuorumMajority(epochHandler)
 	if len(signatures) < majority {
 		return true, false
@@ -111,7 +113,7 @@ func processAnchorRotation(epochHandler *structures.EpochDataHandler, anchorPubk
 	proof := structures.AggregatedAnchorRotationProof{
 		EpochIndex: epochHandler.Id,
 		Anchor:     anchorPubkey,
-		VotingStat: stat,
+		VotingStat: localVotingStat,
 		Signatures: signatures,
 	}
 	if err := utils.StoreAggregatedAnchorRotationProof(proof); err != nil {
@@ -119,18 +121,20 @@ func processAnchorRotation(epochHandler *structures.EpochDataHandler, anchorPubk
 		return true, false
 	}
 	globals.MEMPOOL.AddAggregatedAnchorRotationProof(proof)
-	broadcastRotationProof(epochHandler, proof)
+	broadcastAggregatedAnchorRotationProof(epochHandler, proof)
 	utils.LogWithTime(fmt.Sprintf("anchor rotation: collected %d signatures for %s in epoch %d", len(signatures), anchorPubkey, epochHandler.Id), utils.GREEN_COLOR)
 	return true, true
 }
 
-func collectRotationSignatures(epochHandler *structures.EpochDataHandler, creator string, stat structures.VotingStat) map[string]string {
+func collectRotationSignatures(epochHandler *structures.EpochDataHandler, anchorPubkey string, localVotingStat structures.VotingStat) map[string]string {
 
 	quorumMembers := utils.GetQuorumUrlsAndPubkeys(epochHandler)
-	payload := structures.AnchorRotationProofRequest{EpochIndex: epochHandler.Id, Creator: creator, Proposal: stat}
+	payload := structures.AnchorRotationProofRequest{EpochIndex: epochHandler.Id, ForAnchor: anchorPubkey, Proposal: localVotingStat}
 	requestBody, _ := json.Marshal(payload)
 	signatures := make(map[string]string)
 	majority := utils.GetQuorumMajority(epochHandler)
+
+	dataThatShouldBeSigned := utils.BuildAnchorRotationProofPayload(anchorPubkey, localVotingStat.Index, localVotingStat.Hash, epochHandler.Id)
 
 	for _, member := range quorumMembers {
 		if member.PubKey == globals.CONFIGURATION.PublicKey || member.Url == "" {
@@ -146,24 +150,39 @@ func collectRotationSignatures(epochHandler *structures.EpochDataHandler, creato
 			continue
 		}
 		switch response.Status {
+
 		case "UPGRADE":
+
 			if response.VotingStat != nil {
-				if err := utils.StoreVotingStat(epochHandler.Id, creator, *response.VotingStat); err != nil {
-					utils.LogWithTime(fmt.Sprintf("anchor rotation: failed to store upgraded stat for %s epoch %d: %v", creator, epochHandler.Id, err), utils.YELLOW_COLOR)
+
+				parts := strings.Split(response.VotingStat.Afp.BlockId, ":")
+
+				if len(parts) == 3 {
+
+					if indexOfBlockInAfp, err := strconv.Atoi(parts[2]); err == nil {
+
+						proposalHasBiggerIndex := indexOfBlockInAfp >= localVotingStat.Index
+
+						sameHashes := response.VotingStat.Hash == response.VotingStat.Afp.BlockHash
+
+						if proposalHasBiggerIndex && sameHashes && utils.VerifyAggregatedFinalizationProof(&response.VotingStat.Afp, epochHandler) {
+
+							if err := utils.StoreVotingStat(epochHandler.Id, anchorPubkey, *response.VotingStat); err != nil {
+								utils.LogWithTime(fmt.Sprintf("anchor rotation: failed to store upgraded stat for %s epoch %d: %v", anchorPubkey, epochHandler.Id, err), utils.YELLOW_COLOR)
+							}
+
+							return nil
+
+						}
+
+					}
+
 				}
-				return nil
+
 			}
+
 		case "OK":
-			if response.VotingStat == nil {
-				continue
-			}
-			if response.VotingStat.Index > stat.Index || !strings.EqualFold(response.VotingStat.Hash, stat.Hash) {
-				if err := utils.StoreVotingStat(epochHandler.Id, creator, *response.VotingStat); err != nil {
-					utils.LogWithTime(fmt.Sprintf("anchor rotation: failed to store fresher stat for %s epoch %d: %v", creator, epochHandler.Id, err), utils.YELLOW_COLOR)
-				}
-				return nil
-			}
-			if response.Signature != "" && status == http.StatusOK {
+			if response.Signature != "" && status == http.StatusOK && cryptography.VerifySignature(dataThatShouldBeSigned, member.PubKey, response.Signature) {
 				signatures[member.PubKey] = response.Signature
 			}
 		}
@@ -192,7 +211,7 @@ func postJSON(url string, payload []byte) ([]byte, int, error) {
 	return body, resp.StatusCode, nil
 }
 
-func broadcastRotationProof(epochHandler *structures.EpochDataHandler, proof structures.AggregatedAnchorRotationProof) {
+func broadcastAggregatedAnchorRotationProof(epochHandler *structures.EpochDataHandler, proof structures.AggregatedAnchorRotationProof) {
 	payload := structures.AcceptAggregatedAnchorRotationProofRequest{AggregatedRotationProofs: []structures.AggregatedAnchorRotationProof{proof}}
 	body, _ := json.Marshal(payload)
 	for _, member := range utils.GetQuorumUrlsAndPubkeys(epochHandler) {
