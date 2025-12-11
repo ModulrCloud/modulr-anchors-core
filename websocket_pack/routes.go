@@ -44,7 +44,6 @@ func processAnchorRotationProofsAsync(block block_pack.Block, epochHandler *stru
 
 	go func() {
 		for _, proof := range block.ExtraData.AggregatedAnchorRotationProofs {
-			proof := proof
 			if err := utils.VerifyAggregatedAnchorRotationProof(&proof, epochHandler); err != nil {
 				continue
 			}
