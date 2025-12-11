@@ -52,16 +52,12 @@ func AcceptAggregatedLeaderFinalizationProof(ctx *fasthttp.RequestCtx) {
 
 func storeAggregatedLeaderFinalizationFromRequest(proof structures.AggregatedLeaderFinalizationProof) error {
 
-	if proof.VotingStat.Index < 0 || proof.VotingStat.Hash == "" {
-		return fmt.Errorf("invalid voting stat")
-	}
-
 	if len(proof.Signatures) == 0 {
 		return fmt.Errorf("missing signatures")
 	}
 
 	if existing, err := utils.LoadAggregatedLeaderFinalizationProof(proof.EpochIndex, proof.Leader); err == nil {
-		if existing.VotingStat.Index >= proof.VotingStat.Index && existing.VotingStat.Hash == proof.VotingStat.Hash {
+		if existing.VotingStat.Index >= proof.VotingStat.Index {
 			globals.MEMPOOL.AddAggregatedLeaderFinalizationProof(existing)
 			return nil
 		}
