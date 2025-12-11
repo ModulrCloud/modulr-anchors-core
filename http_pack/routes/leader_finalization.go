@@ -6,7 +6,6 @@ import (
 
 	"github.com/modulrcloud/modulr-anchors-core/globals"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
-	"github.com/modulrcloud/modulr-anchors-core/utils"
 
 	"github.com/valyala/fasthttp"
 )
@@ -54,17 +53,6 @@ func storeAggregatedLeaderFinalizationFromRequest(proof structures.AggregatedLea
 
 	if len(proof.Signatures) == 0 {
 		return fmt.Errorf("missing signatures")
-	}
-
-	if existing, err := utils.LoadAggregatedLeaderFinalizationProof(proof.EpochIndex, proof.Leader); err == nil {
-		if existing.VotingStat.Index >= proof.VotingStat.Index {
-			globals.MEMPOOL.AddAggregatedLeaderFinalizationProof(existing)
-			return nil
-		}
-	}
-
-	if err := utils.StoreAggregatedLeaderFinalizationProof(proof); err != nil {
-		return fmt.Errorf("store leader finalization proof: %w", err)
 	}
 
 	globals.MEMPOOL.AddAggregatedLeaderFinalizationProof(proof)
