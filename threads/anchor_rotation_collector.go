@@ -101,9 +101,6 @@ func processCreatorRotation(epochHandler *structures.EpochDataHandler, creator s
 		utils.LogWithTime(fmt.Sprintf("anchor rotation: failed to read voting stat for %s in epoch %d: %v", creator, epochHandler.Id, err), utils.YELLOW_COLOR)
 		return true, false
 	}
-	if stat.Index < 0 || stat.Hash == "" {
-		return true, false
-	}
 
 	signatures := collectRotationSignatures(epochHandler, creator, stat)
 	majority := utils.GetQuorumMajority(epochHandler)

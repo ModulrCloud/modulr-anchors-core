@@ -94,11 +94,6 @@ func respondWithUpgrade(ctx *fasthttp.RequestCtx, stat structures.VotingStat) {
 }
 
 func handleMatchingProposal(ctx *fasthttp.RequestCtx, creator string, current, proposal structures.VotingStat, epochHandler *structures.EpochDataHandler) {
-	if current.Index < 0 || current.Hash == "" {
-		ctx.SetStatusCode(fasthttp.StatusConflict)
-		ctx.Write([]byte(`{"err":"no finalized blocks recorded"}`))
-		return
-	}
 
 	if !strings.EqualFold(current.Hash, proposal.Hash) {
 		ctx.SetStatusCode(fasthttp.StatusConflict)

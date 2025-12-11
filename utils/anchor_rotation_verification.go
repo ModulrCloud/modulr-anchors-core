@@ -17,27 +17,24 @@ func BuildAnchorRotationProofPayload(anchor string, blockIndex int, blockHash st
 
 func VerifyAggregatedAnchorRotationProof(proof *structures.AggregatedAnchorRotationProof, epochHandler *structures.EpochDataHandler) error {
 
-	if proof.VotingStat.Index < 0 || proof.VotingStat.Hash == "" {
-		return fmt.Errorf("invalid voting stat")
-	}
 	if proof.VotingStat.Afp.BlockId == "" {
 		return fmt.Errorf("missing AFP blockId")
 	}
-	if slices.Index(epochHandler.AnchorsRegistry, proof.Anchor) < 0 {
+	if slices.Contains(epochHandler.AnchorsRegistry, proof.Anchor) {
 		return fmt.Errorf("anchor %s not found in epoch %d", proof.Anchor, epochHandler.Id)
 	}
 	expectedBlockId := fmt.Sprintf("%d:%s:%d", proof.EpochIndex, proof.Anchor, proof.VotingStat.Index)
-	if !strings.EqualFold(proof.VotingStat.Afp.BlockId, expectedBlockId) {
+	if proof.VotingStat.Afp.BlockId != expectedBlockId {
 		return fmt.Errorf("AFP blockId mismatch")
 	}
-	if !strings.EqualFold(proof.VotingStat.Hash, proof.VotingStat.Afp.BlockHash) {
+	if proof.VotingStat.Hash != proof.VotingStat.Afp.BlockHash {
 		return fmt.Errorf("AFP block hash mismatch")
 	}
+
 	blockParts := strings.Split(proof.VotingStat.Afp.BlockId, ":")
-	if len(blockParts) != 3 {
-		return fmt.Errorf("invalid AFP blockId format")
-	}
+
 	afpIndex, err := strconv.Atoi(blockParts[2])
+
 	if err != nil || afpIndex != proof.VotingStat.Index {
 		return fmt.Errorf("AFP index mismatch")
 	}
