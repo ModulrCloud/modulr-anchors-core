@@ -2,9 +2,9 @@ package websocket_pack
 
 import (
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/modulrcloud/modulr-anchors-core/block_pack"
 	"github.com/modulrcloud/modulr-anchors-core/cryptography"
@@ -16,43 +16,6 @@ import (
 
 	"github.com/lxzan/gws"
 )
-
-func getBlockCreatorMutex(epochIndex int, creator string, anchorsRegistry []string) (*sync.Mutex, bool) {
-
-	allowed := false
-
-	for _, anchor := range anchorsRegistry {
-		if anchor == creator {
-			allowed = true
-			break
-		}
-	}
-
-	if !allowed {
-		return nil, false
-	}
-
-	return globals.BLOCK_CREATORS_MUTEX_REGISTRY.GetMutex(epochIndex, creator), true
-
-}
-
-func processAnchorRotationProofsAsync(block block_pack.Block, epochHandler *structures.EpochDataHandler, blockId string) {
-
-	if len(block.ExtraData.AggregatedAnchorRotationProofs) == 0 || epochHandler == nil {
-		return
-	}
-
-	go func() {
-		for _, proof := range block.ExtraData.AggregatedAnchorRotationProofs {
-			if err := utils.VerifyAggregatedAnchorRotationProof(&proof, epochHandler); err != nil {
-				continue
-			}
-			if err := utils.StoreAggregatedAnchorRotationProofPresence(proof.EpochIndex, block.Creator, proof.Anchor, blockId); err != nil {
-				continue
-			}
-		}
-	}()
-}
 
 func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *gws.Conn) {
 
@@ -81,24 +44,28 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 		return
 	}
 
-	epochIndex := epochHandler.Id
-
-	creatorMutex, allowed := getBlockCreatorMutex(epochIndex, parsedRequest.Block.Creator, epochHandler.AnchorsRegistry)
-
-	if !allowed {
+	if !slices.Contains(epochHandler.AnchorsRegistry, parsedRequest.Block.Creator) {
 		return
 	}
 
-	epochFullID := epochHandler.Hash + "#" + strconv.Itoa(epochIndex)
-	epochIndexStr := strconv.Itoa(epochIndex)
+	epochIndex := epochHandler.Id
+
+	creatorMutex := globals.BLOCK_CREATORS_MUTEX_REGISTRY.GetMutex(epochIndex, parsedRequest.Block.Creator)
+
+	creatorMutex.Lock()
+	defer creatorMutex.Unlock()
 
 	if utils.IsFinalizationProofsDisabled(epochIndex, parsedRequest.Block.Creator) {
 		return
 	}
 
+	epochIndexStr := strconv.Itoa(epochIndex)
+
+	epochFullID := epochHandler.Hash + "#" + epochIndexStr
+
 	localVotingDataForLeader := structures.NewVotingStatTemplate()
 
-	localVotingDataRaw, err := databases.FINALIZATION_VOTING_STATS.Get([]byte(strconv.Itoa(epochIndex)+":"+parsedRequest.Block.Creator), nil)
+	localVotingDataRaw, err := databases.FINALIZATION_VOTING_STATS.Get([]byte(epochIndexStr+":"+parsedRequest.Block.Creator), nil)
 
 	if err == nil {
 
@@ -112,17 +79,13 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 
 	if itsSameChainSegment {
 
-		proposedBlockId := strconv.Itoa(epochIndex) + ":" + parsedRequest.Block.Creator + ":" + strconv.Itoa(int(parsedRequest.Block.Index))
+		proposedBlockId := epochIndexStr + ":" + parsedRequest.Block.Creator + ":" + strconv.Itoa(int(parsedRequest.Block.Index))
 
 		previousBlockIndex := int(parsedRequest.Block.Index - 1)
 
 		var futureVotingDataToStore structures.VotingStat
 
 		if parsedRequest.Block.VerifySignature() && !utils.SignalAboutEpochRotationExists(epochIndex) {
-
-			creatorMutex.Lock()
-
-			defer creatorMutex.Unlock()
 
 			if localVotingDataForLeader.Index == int(parsedRequest.Block.Index) {
 
@@ -141,7 +104,7 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 
 			}
 
-			previousBlockId := strconv.Itoa(epochIndex) + ":" + parsedRequest.Block.Creator + ":" + strconv.Itoa(previousBlockIndex)
+			previousBlockId := epochIndexStr + ":" + parsedRequest.Block.Creator + ":" + strconv.Itoa(previousBlockIndex)
 
 			// Check if AFP inside related to previous block AFP
 
@@ -167,17 +130,13 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 
 							// 2. Store the AFP for previous block
 
-							errStore := databases.EPOCH_DATA.Put([]byte("AFP:"+parsedRequest.PreviousBlockAfp.BlockId), afpBytes, nil)
+							errStoreAfp := databases.EPOCH_DATA.Put([]byte("AFP:"+parsedRequest.PreviousBlockAfp.BlockId), afpBytes, nil)
 
-							votingStatBytes, errParse := json.Marshal(futureVotingDataToStore)
-
-							if errStore == nil && errParse == nil {
+							if errStoreAfp == nil {
 
 								// 3. Store the voting stats
 
-								err := databases.FINALIZATION_VOTING_STATS.Put([]byte(strconv.Itoa(epochIndex)+":"+parsedRequest.Block.Creator), votingStatBytes, nil)
-
-								if err == nil {
+								if errStoreVotingStats := utils.StoreVotingStat(epochIndex, parsedRequest.Block.Creator, futureVotingDataToStore); errStoreVotingStats == nil {
 
 									// Only after we stored the these 3 components = generate signature (finalization proof)
 
@@ -281,4 +240,22 @@ func GetBlockWithAggregatedFinalizationProof(parsedRequest WsBlockWithAfpRequest
 
 	}
 
+}
+
+func processAnchorRotationProofsAsync(block block_pack.Block, epochHandler *structures.EpochDataHandler, blockId string) {
+
+	if len(block.ExtraData.AggregatedAnchorRotationProofs) == 0 || epochHandler == nil {
+		return
+	}
+
+	go func() {
+		for _, proof := range block.ExtraData.AggregatedAnchorRotationProofs {
+			if err := utils.VerifyAggregatedAnchorRotationProof(&proof, epochHandler); err != nil {
+				continue
+			}
+			if err := utils.StoreAggregatedAnchorRotationProofPresence(proof.EpochIndex, block.Creator, proof.Anchor, blockId); err != nil {
+				continue
+			}
+		}
+	}()
 }

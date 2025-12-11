@@ -16,7 +16,7 @@ func aggregatedAnchorRotationProofKey(epoch int, creator string) []byte {
 }
 
 func aggregatedAnchorRotationProofPresenceKey(epoch int, blockCreator, rotatedAnchor string) []byte {
-	return []byte("AARP:" + strconv.Itoa(epoch) + ":" + blockCreator + ":" + rotatedAnchor)
+	return []byte("AARP_PRESENCE:" + strconv.Itoa(epoch) + ":" + blockCreator + ":" + rotatedAnchor)
 }
 
 func StoreAggregatedAnchorRotationProof(proof structures.AggregatedAnchorRotationProof) error {

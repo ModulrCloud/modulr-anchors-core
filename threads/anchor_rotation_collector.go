@@ -69,7 +69,7 @@ func handleEpochForRotation(epochHandler *structures.EpochDataHandler) (int, int
 	rotationCandidates := 0
 	proofsCollected := 0
 	for _, creator := range epochHandler.AnchorsRegistry {
-		candidate, proof := processCreatorRotation(epochHandler, creator)
+		candidate, proof := processAnchorRotation(epochHandler, creator)
 		if candidate {
 			rotationCandidates++
 		}
@@ -80,29 +80,29 @@ func handleEpochForRotation(epochHandler *structures.EpochDataHandler) (int, int
 	return len(epochHandler.AnchorsRegistry), rotationCandidates, proofsCollected
 }
 
-func processCreatorRotation(epochHandler *structures.EpochDataHandler, creator string) (bool, bool) {
-	if !utils.IsFinalizationProofsDisabled(epochHandler.Id, creator) {
+func processAnchorRotation(epochHandler *structures.EpochDataHandler, anchorPubkey string) (bool, bool) {
+	if !utils.IsFinalizationProofsDisabled(epochHandler.Id, anchorPubkey) {
 		return false, false
 	}
-	if utils.HasAggregatedAnchorRotationProof(epochHandler.Id, creator) {
+	if utils.HasAggregatedAnchorRotationProof(epochHandler.Id, anchorPubkey) {
 		return false, false
 	}
 
-	mutex := globals.BLOCK_CREATORS_MUTEX_REGISTRY.GetMutex(epochHandler.Id, creator)
+	mutex := globals.BLOCK_CREATORS_MUTEX_REGISTRY.GetMutex(epochHandler.Id, anchorPubkey)
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	if !utils.IsFinalizationProofsDisabled(epochHandler.Id, creator) || utils.HasAggregatedAnchorRotationProof(epochHandler.Id, creator) {
+	if !utils.IsFinalizationProofsDisabled(epochHandler.Id, anchorPubkey) || utils.HasAggregatedAnchorRotationProof(epochHandler.Id, anchorPubkey) {
 		return false, false
 	}
 
-	stat, err := utils.ReadVotingStat(epochHandler.Id, creator)
+	stat, err := utils.ReadVotingStat(epochHandler.Id, anchorPubkey)
 	if err != nil {
-		utils.LogWithTime(fmt.Sprintf("anchor rotation: failed to read voting stat for %s in epoch %d: %v", creator, epochHandler.Id, err), utils.YELLOW_COLOR)
+		utils.LogWithTime(fmt.Sprintf("anchor rotation: failed to read voting stat for %s in epoch %d: %v", anchorPubkey, epochHandler.Id, err), utils.YELLOW_COLOR)
 		return true, false
 	}
 
-	signatures := collectRotationSignatures(epochHandler, creator, stat)
+	signatures := collectRotationSignatures(epochHandler, anchorPubkey, stat)
 	majority := utils.GetQuorumMajority(epochHandler)
 	if len(signatures) < majority {
 		return true, false
@@ -110,21 +110,22 @@ func processCreatorRotation(epochHandler *structures.EpochDataHandler, creator s
 
 	proof := structures.AggregatedAnchorRotationProof{
 		EpochIndex: epochHandler.Id,
-		Anchor:     creator,
+		Anchor:     anchorPubkey,
 		VotingStat: stat,
 		Signatures: signatures,
 	}
 	if err := utils.StoreAggregatedAnchorRotationProof(proof); err != nil {
-		utils.LogWithTime(fmt.Sprintf("anchor rotation: failed to persist proof for %s epoch %d: %v", creator, epochHandler.Id, err), utils.YELLOW_COLOR)
+		utils.LogWithTime(fmt.Sprintf("anchor rotation: failed to persist proof for %s epoch %d: %v", anchorPubkey, epochHandler.Id, err), utils.YELLOW_COLOR)
 		return true, false
 	}
 	globals.MEMPOOL.AddAggregatedAnchorRotationProof(proof)
 	broadcastRotationProof(epochHandler, proof)
-	utils.LogWithTime(fmt.Sprintf("anchor rotation: collected %d signatures for %s in epoch %d", len(signatures), creator, epochHandler.Id), utils.GREEN_COLOR)
+	utils.LogWithTime(fmt.Sprintf("anchor rotation: collected %d signatures for %s in epoch %d", len(signatures), anchorPubkey, epochHandler.Id), utils.GREEN_COLOR)
 	return true, true
 }
 
 func collectRotationSignatures(epochHandler *structures.EpochDataHandler, creator string, stat structures.VotingStat) map[string]string {
+
 	quorumMembers := utils.GetQuorumUrlsAndPubkeys(epochHandler)
 	payload := structures.AnchorRotationProofRequest{EpochIndex: epochHandler.Id, Creator: creator, Proposal: stat}
 	requestBody, _ := json.Marshal(payload)

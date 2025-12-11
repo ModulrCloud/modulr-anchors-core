@@ -72,18 +72,18 @@ func RequestAnchorRotationProof(ctx *fasthttp.RequestCtx) {
 	proposal := req.Proposal
 	switch {
 	case proposal.Index < currentStat.Index:
-		respondWithUpgrade(ctx, currentStat)
+		handlerLocalIsBiggerThanProposalIndex(ctx, currentStat)
 		return
 	case proposal.Index == currentStat.Index:
-		handleMatchingProposal(ctx, req.Creator, currentStat, proposal, epochHandler)
+		handleMatchingIndexes(ctx, req.Creator, currentStat, proposal, epochHandler)
 		return
 	default:
-		handleUpgradeProposal(ctx, currentStat, proposal, req.EpochIndex, req.Creator, epochHandler)
+		handleProposalIsBiggerThanLocalIndex(ctx, currentStat, proposal, req.EpochIndex, req.Creator, epochHandler)
 		return
 	}
 }
 
-func respondWithUpgrade(ctx *fasthttp.RequestCtx, stat structures.VotingStat) {
+func handlerLocalIsBiggerThanProposalIndex(ctx *fasthttp.RequestCtx, stat structures.VotingStat) {
 	ctx.SetStatusCode(fasthttp.StatusConflict)
 	payload, _ := json.Marshal(structures.AnchorRotationProofResponse{
 		Status:     "UPGRADE",
@@ -93,7 +93,7 @@ func respondWithUpgrade(ctx *fasthttp.RequestCtx, stat structures.VotingStat) {
 	ctx.Write(payload)
 }
 
-func handleMatchingProposal(ctx *fasthttp.RequestCtx, creator string, current, proposal structures.VotingStat, epochHandler *structures.EpochDataHandler) {
+func handleMatchingIndexes(ctx *fasthttp.RequestCtx, creator string, current, proposal structures.VotingStat, epochHandler *structures.EpochDataHandler) {
 
 	if !strings.EqualFold(current.Hash, proposal.Hash) {
 		ctx.SetStatusCode(fasthttp.StatusConflict)
@@ -104,17 +104,11 @@ func handleMatchingProposal(ctx *fasthttp.RequestCtx, creator string, current, p
 	respondWithSignature(ctx, creator, current, epochHandler)
 }
 
-func handleUpgradeProposal(ctx *fasthttp.RequestCtx, current, proposal structures.VotingStat, epochIndex int, creator string, epochHandler *structures.EpochDataHandler) {
-	if err := validateUpgradeProposal(current, proposal, epochIndex, creator, epochHandler); err != nil {
+func handleProposalIsBiggerThanLocalIndex(ctx *fasthttp.RequestCtx, current, proposal structures.VotingStat, epochIndex int, creator string, epochHandler *structures.EpochDataHandler) {
+	if err := validateProposalWithBiggerIndex(current, proposal, epochIndex, creator, epochHandler); err != nil {
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
 		payload, _ := json.Marshal(structures.AnchorRotationProofResponse{Status: "ERROR", Message: err.Error()})
 		ctx.Write(payload)
-		return
-	}
-
-	if err := utils.StoreVotingStat(epochIndex, creator, proposal); err != nil {
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write([]byte(`{"err":"failed to persist voting stat"}`))
 		return
 	}
 
@@ -139,7 +133,7 @@ func respondWithSignature(ctx *fasthttp.RequestCtx, anchor string, stat structur
 	ctx.Write(payload)
 }
 
-func validateUpgradeProposal(current, proposal structures.VotingStat, epochIndex int, creator string, epochHandler *structures.EpochDataHandler) error {
+func validateProposalWithBiggerIndex(current, proposal structures.VotingStat, epochIndex int, creator string, epochHandler *structures.EpochDataHandler) error {
 	if proposal.Index <= current.Index {
 		return fmt.Errorf("proposal index %d does not advance current index %d", proposal.Index, current.Index)
 	}

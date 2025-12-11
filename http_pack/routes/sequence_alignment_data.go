@@ -83,8 +83,8 @@ func GetSequenceAlignmentData(ctx *fasthttp.RequestCtx) {
 		currentMax := -1
 		allFound := true
 
-		for _, rotated := range requiredAnchors {
-			blockID, err := utils.LoadAggregatedAnchorRotationProofPresence(epochIndex, creator, rotated)
+		for _, rotatedAnchor := range requiredAnchors {
+			blockID, err := utils.LoadAggregatedAnchorRotationProofPresence(epochIndex, creator, rotatedAnchor)
 			if err != nil {
 				ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 				ctx.Write([]byte(fmt.Sprintf(`{"err":"failed to read AARP presence: %s"}`, err.Error())))
@@ -101,7 +101,7 @@ func GetSequenceAlignmentData(ctx *fasthttp.RequestCtx) {
 				break
 			}
 
-			proof, err := utils.LoadAggregatedAnchorRotationProof(epochIndex, rotated)
+			proof, err := utils.LoadAggregatedAnchorRotationProof(epochIndex, rotatedAnchor)
 			if err != nil {
 				ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 				ctx.Write([]byte(fmt.Sprintf(`{"err":"failed to load AARP: %s"}`, err.Error())))
@@ -112,7 +112,7 @@ func GetSequenceAlignmentData(ctx *fasthttp.RequestCtx) {
 				break
 			}
 
-			rotatedIndex, ok := anchorIndexLookup[rotated]
+			rotatedIndex, ok := anchorIndexLookup[rotatedAnchor]
 			if !ok {
 				allFound = false
 				break
