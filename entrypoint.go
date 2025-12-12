@@ -116,7 +116,9 @@ func prepareAnchorsChains() error {
 
 	}
 
-	ensureEpochWindow(&handlers.APPROVEMENT_THREAD_METADATA.Handler)
+	if err := ensureEpochWindow(&handlers.APPROVEMENT_THREAD_METADATA.Handler); err != nil {
+		return fmt.Errorf("ensure epoch window: %w", err)
+	}
 	if err := loadGenerationThreadMetadata(); err != nil {
 		return err
 	}
@@ -197,7 +199,7 @@ func loadGenesis() error {
 
 }
 
-func ensureEpochWindow(handler *structures.ApprovementThreadMetadataHandler) {
+func ensureEpochWindow(handler *structures.ApprovementThreadMetadataHandler) error {
 	if handler.NetworkParameters.MaxEpochsToSupport <= 0 {
 		handler.NetworkParameters.MaxEpochsToSupport = 1
 	}
@@ -210,12 +212,17 @@ func ensureEpochWindow(handler *structures.ApprovementThreadMetadataHandler) {
 		handler.SupportedEpochs = handler.SupportedEpochs[offset:]
 		for _, dropped := range toDrop {
 			keyValue := []byte("EPOCH_FINISH:" + strconv.Itoa(dropped.Id))
-			databases.FINALIZATION_VOTING_STATS.Put(keyValue, []byte("TRUE"), nil)
+			if err := databases.FINALIZATION_VOTING_STATS.Put(keyValue, []byte("TRUE"), nil); err != nil {
+				return fmt.Errorf("store finalization voting stats: %w", err)
+			}
 			epochFullID := dropped.Hash + "#" + strconv.Itoa(dropped.Id)
-			databases.BLOCKS.Delete([]byte("GT:"+epochFullID), nil)
+			if err := databases.BLOCKS.Delete([]byte("GT:"+epochFullID), nil); err != nil {
+				return fmt.Errorf("delete blocks for epoch %s: %w", epochFullID, err)
+			}
 		}
 	}
 	handler.SyncEpochPointers()
+	return nil
 }
 
 func loadGenerationThreadMetadata() error {
