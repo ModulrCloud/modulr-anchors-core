@@ -260,7 +260,7 @@ func ensureFinalizationRuntime(epochHandler *structures.EpochDataHandler) *final
 		json.Unmarshal(rawGrabber, &grabber)
 	}
 	runtime.Grabber = grabber
-	utils.OpenWebsocketConnectionsWithQuorum(epochHandler.Quorum, runtime.Connections)
+	runtime.Connections = utils.GetQuorumConnections(epochHandler.Quorum)
 	runtime.Waiter = utils.NewQuorumWaiter(len(epochHandler.Quorum))
 	finalizationRuntimes.Data[epochHandler.Id] = runtime
 	return runtime
@@ -270,9 +270,7 @@ func removeFinalizationRuntime(epochId int) {
 	finalizationRuntimes.Lock()
 	defer finalizationRuntimes.Unlock()
 	if runtime, ok := finalizationRuntimes.Data[epochId]; ok {
-		for _, conn := range runtime.Connections {
-			conn.Close()
-		}
+		utils.ReleaseQuorumConnections(runtime.Connections)
 		delete(finalizationRuntimes.Data, epochId)
 	}
 }
