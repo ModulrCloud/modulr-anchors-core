@@ -32,10 +32,6 @@ func (mempool *Mempool) AddAggregatedAnchorRotationProof(proof structures.Aggreg
 
 	mempool.Lock()
 
-	if proof.Signatures == nil {
-		proof.Signatures = map[string]string{}
-	}
-
 	mempool.aggregatedAnchorRotationProofs[anchorMempoolKey(proof)] = proof
 	mempool.Unlock()
 
@@ -44,10 +40,6 @@ func (mempool *Mempool) AddAggregatedAnchorRotationProof(proof structures.Aggreg
 func (mempool *Mempool) AddAggregatedLeaderFinalizationProof(proof structures.AggregatedLeaderFinalizationProof) {
 
 	mempool.Lock()
-
-	if proof.Signatures == nil {
-		proof.Signatures = map[string]string{}
-	}
 
 	mempool.aggregatedLeaderFinalizationProofs[leaderMempoolKey(proof)] = proof
 	mempool.Unlock()
