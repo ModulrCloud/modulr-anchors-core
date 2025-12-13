@@ -212,7 +212,7 @@ func ensureEpochWindow(handler *structures.ApprovementThreadMetadataHandler) err
 		handler.SupportedEpochs = handler.SupportedEpochs[offset:]
 		for _, dropped := range toDrop {
 			keyValue := []byte("EPOCH_FINISH:" + strconv.Itoa(dropped.Id))
-			if err := databases.FINALIZATION_VOTING_STATS.Put(keyValue, []byte("TRUE"), nil); err != nil {
+			if err := databases.EPOCH_DATA.Put(keyValue, []byte("TRUE"), nil); err != nil {
 				return fmt.Errorf("store finalization voting stats: %w", err)
 			}
 			epochFullID := dropped.Hash + "#" + strconv.Itoa(dropped.Id)

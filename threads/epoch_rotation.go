@@ -122,7 +122,7 @@ func EpochRotationThread() {
 
 			keyValue := []byte("EPOCH_FINISH:" + strconv.Itoa(dropped.Id))
 
-			if err := databases.FINALIZATION_VOTING_STATS.Put(keyValue, []byte("TRUE"), nil); err != nil {
+			if err := databases.EPOCH_DATA.Put(keyValue, []byte("TRUE"), nil); err != nil {
 				panic("Failed to mark epoch as finished: " + err.Error())
 			}
 
