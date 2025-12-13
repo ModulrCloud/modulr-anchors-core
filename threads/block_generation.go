@@ -2,6 +2,7 @@ package threads
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -110,10 +111,13 @@ func generateBlock(epochHandlerRef *structures.EpochDataHandler) {
 		restData[key] = value
 	}
 
+	aggregatedRotationProofs := globals.MEMPOOL.DrainAggregatedAnchorRotationProofs()
+	aggregatedLeaderProofs := globals.MEMPOOL.DrainAggregatedLeaderFinalizationProofs()
+
 	extraData := block_pack.ExtraDataToBlock{
 		Rest:                               restData,
-		AggregatedAnchorRotationProofs:     globals.MEMPOOL.DrainAggregatedAnchorRotationProofs(),
-		AggregatedLeaderFinalizationProofs: globals.MEMPOOL.DrainAggregatedLeaderFinalizationProofs(),
+		AggregatedAnchorRotationProofs:     aggregatedRotationProofs,
+		AggregatedLeaderFinalizationProofs: aggregatedLeaderProofs,
 	}
 
 	blockDbAtomicBatch := new(leveldb.Batch)
@@ -126,7 +130,10 @@ func generateBlock(epochHandlerRef *structures.EpochDataHandler) {
 
 	blockID := strconv.Itoa(epochIndex) + ":" + globals.CONFIGURATION.PublicKey + ":" + strconv.Itoa(blockCandidate.Index)
 
-	utils.LogWithTime("New block generated "+blockID+" (hash: "+blockHash[:8]+"...)", utils.CYAN_COLOR)
+	aggregatedProofsLabel := fmt.Sprintf("New block generated %s (hash: %s...) ✅ AggregatedAnchorRotationProofs=%d, AggregatedLeaderFinalizationProofs=%d",
+		blockID, blockHash[:8], len(aggregatedRotationProofs), len(aggregatedLeaderProofs))
+
+	utils.LogWithTime(aggregatedProofsLabel, utils.CYAN_COLOR)
 
 	blockBytes, serializeErr := json.Marshal(blockCandidate)
 
