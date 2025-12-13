@@ -29,7 +29,7 @@
             "anchorURL": "http://localhost:7334",
             "wssAnchorURL": "ws://localhost:9997"
         },
-                {
+        {
             "pubkey": "3JAeBnsMedzxjCMNWQYcAXtwGVE9A5DBQyXgWBujtL9R",
             "anchorURL": "http://localhost:7335",
             "wssAnchorURL": "ws://localhost:9996"
