@@ -42,7 +42,6 @@ func bannerLines() []string {
 	lines = append(lines, fmt.Sprintf("■ first epoch start: %d", globals.GENESIS.FirstEpochStartTimestamp))
 	lines = append(lines, fmt.Sprintf("■ http endpoint: %s", endpointLabel(cfg.Interface, cfg.Port)))
 	lines = append(lines, fmt.Sprintf("■ ws endpoint: %s", endpointLabel(cfg.WebSocketInterface, cfg.WebSocketPort)))
-	lines = append(lines, fmt.Sprintf("■ bootstrap peers: %d", len(cfg.BootstrapNodes)))
 	lines = append(lines, fmt.Sprintf("■ quorum size: %d / block time: %dms", params.QuorumSize, params.BlockTime))
 	return lines
 }
