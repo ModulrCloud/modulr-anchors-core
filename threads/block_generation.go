@@ -130,8 +130,7 @@ func generateBlock(epochHandlerRef *structures.EpochDataHandler) {
 
 	blockID := strconv.Itoa(epochIndex) + ":" + globals.CONFIGURATION.PublicKey + ":" + strconv.Itoa(blockCandidate.Index)
 
-	aggregatedProofsLabel := fmt.Sprintf("New block generated %s (hash: %s...) ✅ AggregatedAnchorRotationProofs=%d, AggregatedLeaderFinalizationProofs=%d",
-		blockID, blockHash[:8], len(aggregatedRotationProofs), len(aggregatedLeaderProofs))
+	aggregatedProofsLabel := fmt.Sprintf("New block generated %s (hash: %s...) | AARPs=%d, ALFPs=%d", blockID, blockHash[:8], len(aggregatedRotationProofs), len(aggregatedLeaderProofs))
 
 	utils.LogWithTime(aggregatedProofsLabel, utils.CYAN_COLOR)
 

@@ -150,9 +150,8 @@ func collectRotationSignatures(epochHandler *structures.EpochDataHandler, anchor
 	wg := &sync.WaitGroup{}
 
 	for _, member := range quorumMembers {
-		if member.PubKey == globals.CONFIGURATION.PublicKey || member.Url == "" {
-			continue
-		}
+
+		fmt.Println("DEBUG: Sending to ", member.PubKey)
 
 		wg.Add(1)
 		go func(member utils.QuorumMemberData) {
