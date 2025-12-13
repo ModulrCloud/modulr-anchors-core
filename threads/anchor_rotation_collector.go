@@ -102,7 +102,7 @@ func processAnchorRotation(epochHandler *structures.EpochDataHandler, anchorPubk
 
 	localVotingStat, err := utils.ReadVotingStat(epochHandler.Id, anchorPubkey)
 	if err != nil {
-		utils.LogWithTime(fmt.Sprintf("anchor rotation: failed to read voting stat for %s in epoch %d: %v", anchorPubkey, epochHandler.Id, err), utils.YELLOW_COLOR)
+		utils.LogWithTime(fmt.Sprintf("Anchor rotation: failed to read voting stat for %s in epoch %d: %v", anchorPubkey, epochHandler.Id, err), utils.YELLOW_COLOR)
 		return true, false
 	}
 
@@ -119,12 +119,12 @@ func processAnchorRotation(epochHandler *structures.EpochDataHandler, anchorPubk
 		Signatures: signatures,
 	}
 	if err := utils.StoreAggregatedAnchorRotationProof(proof); err != nil {
-		utils.LogWithTime(fmt.Sprintf("anchor rotation: failed to persist proof for %s epoch %d: %v", anchorPubkey, epochHandler.Id, err), utils.YELLOW_COLOR)
+		utils.LogWithTime(fmt.Sprintf("Anchor rotation: failed to persist proof for %s epoch %d: %v", anchorPubkey, epochHandler.Id, err), utils.YELLOW_COLOR)
 		return true, false
 	}
 	globals.MEMPOOL.AddAggregatedAnchorRotationProof(proof)
 	broadcastAggregatedAnchorRotationProof(epochHandler, proof)
-	utils.LogWithTime(fmt.Sprintf("anchor rotation: collected %d signatures for %s in epoch %d", len(signatures), anchorPubkey, epochHandler.Id), utils.GREEN_COLOR)
+	utils.LogWithTime(fmt.Sprintf("Anchor rotation: collected %d signatures for %s in epoch %d", len(signatures), anchorPubkey, epochHandler.Id), utils.GREEN_COLOR)
 	return true, true
 }
 
@@ -222,7 +222,7 @@ func collectRotationSignatures(epochHandler *structures.EpochDataHandler, anchor
 		if result.votingStat != nil {
 			cancel()
 			if err := utils.StoreVotingStat(epochHandler.Id, anchorPubkey, *result.votingStat); err != nil {
-				utils.LogWithTime(fmt.Sprintf("anchor rotation: failed to store upgraded stat for %s epoch %d: %v", anchorPubkey, epochHandler.Id, err), utils.YELLOW_COLOR)
+				utils.LogWithTime(fmt.Sprintf("Anchor rotation: failed to store upgraded stat for %s epoch %d: %v", anchorPubkey, epochHandler.Id, err), utils.YELLOW_COLOR)
 			}
 			return nil
 		}
@@ -266,7 +266,7 @@ func broadcastAggregatedAnchorRotationProof(epochHandler *structures.EpochDataHa
 		}
 		endpoint := strings.TrimRight(member.Url, "/") + "/accept_aggregated_anchor_rotation_proof"
 		if _, _, err := postJSON(endpoint, body); err != nil {
-			utils.LogWithTime(fmt.Sprintf("anchor rotation: failed to broadcast proof to %s: %v", member.PubKey, err), utils.YELLOW_COLOR)
+			utils.LogWithTime(fmt.Sprintf("Anchor rotation: failed to broadcast proof to %s: %v", member.PubKey, err), utils.YELLOW_COLOR)
 		}
 	}
 }

@@ -63,7 +63,7 @@ func checkCreatorsHealth() {
 			votingStat, err := utils.ReadVotingStat(epochHandler.Id, creator)
 			if err != nil {
 				utils.LogWithTime(
-					fmt.Sprintf("health checker: failed to read voting stats for %s in epoch %d: %v", creator, epochHandler.Id, err),
+					fmt.Sprintf("Health checker: failed to read voting stats for %s in epoch %d: %v", creator, epochHandler.Id, err),
 					utils.YELLOW_COLOR,
 				)
 				continue
@@ -89,10 +89,6 @@ func checkCreatorsHealth() {
 }
 
 func evaluateCreatorProgress(epochID int, creator string, current structures.VotingStat) bool {
-	if current.Index < 0 {
-		storeSnapshot(epochID, creator, current)
-		return false
-	}
 
 	key := snapshotKey(epochID, creator)
 
@@ -108,12 +104,12 @@ func evaluateCreatorProgress(epochID int, creator string, current structures.Vot
 	if previous.Index == current.Index && previous.Hash == current.Hash {
 		if err := utils.DisableFinalizationProofsForCreator(epochID, creator); err != nil {
 			utils.LogWithTime(
-				fmt.Sprintf("health checker: failed to disable proofs for %s in epoch %d: %v", creator, epochID, err),
+				fmt.Sprintf("Health checker: failed to disable proofs for %s in epoch %d: %v", creator, epochID, err),
 				utils.RED_COLOR,
 			)
 		} else {
 			utils.LogWithTime(
-				fmt.Sprintf("health checker: disabled proofs for %s in epoch %d", creator, epochID),
+				fmt.Sprintf("Health checker: disabled proofs for %s in epoch %d", creator, epochID),
 				utils.YELLOW_COLOR,
 			)
 		}
