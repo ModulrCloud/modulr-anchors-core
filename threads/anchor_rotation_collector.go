@@ -85,16 +85,6 @@ func handleEpochForRotation(epochHandler *structures.EpochDataHandler) (int, int
 }
 
 func processAnchorRotation(epochHandler *structures.EpochDataHandler, anchorPubkey string) (bool, bool) {
-	if !utils.IsFinalizationProofsDisabled(epochHandler.Id, anchorPubkey) {
-		return false, false
-	}
-	if utils.HasAggregatedAnchorRotationProof(epochHandler.Id, anchorPubkey) {
-		return false, false
-	}
-
-	mutex := globals.BLOCK_CREATORS_MUTEX_REGISTRY.GetMutex(epochHandler.Id, anchorPubkey)
-	mutex.Lock()
-	defer mutex.Unlock()
 
 	if !utils.IsFinalizationProofsDisabled(epochHandler.Id, anchorPubkey) || utils.HasAggregatedAnchorRotationProof(epochHandler.Id, anchorPubkey) {
 		return false, false
@@ -151,8 +141,6 @@ func collectRotationSignatures(epochHandler *structures.EpochDataHandler, anchor
 
 	for _, member := range quorumMembers {
 
-		fmt.Println("DEBUG: Sending to ", member.PubKey)
-
 		wg.Add(1)
 		go func(member utils.QuorumMemberData) {
 			defer wg.Done()
@@ -193,9 +181,10 @@ func collectRotationSignatures(epochHandler *structures.EpochDataHandler, anchor
 					parts := strings.Split(response.VotingStat.Afp.BlockId, ":")
 					if len(parts) == 3 {
 						if indexOfBlockInAfp, err := strconv.Atoi(parts[2]); err == nil {
-							proposalHasBiggerIndex := indexOfBlockInAfp >= localVotingStat.Index
+							proposalHasBiggerIndex := indexOfBlockInAfp > localVotingStat.Index
+							sameIndexes := indexOfBlockInAfp == response.VotingStat.Index
 							sameHashes := response.VotingStat.Hash == response.VotingStat.Afp.BlockHash
-							if proposalHasBiggerIndex && sameHashes && utils.VerifyAggregatedFinalizationProof(&response.VotingStat.Afp, epochHandler) {
+							if sameIndexes && sameHashes && proposalHasBiggerIndex && utils.VerifyAggregatedFinalizationProof(&response.VotingStat.Afp, epochHandler) {
 								results <- rotationResult{votingStat: response.VotingStat}
 								return
 							}
@@ -220,10 +209,25 @@ func collectRotationSignatures(epochHandler *structures.EpochDataHandler, anchor
 	for result := range results {
 		if result.votingStat != nil {
 			cancel()
-			if err := utils.StoreVotingStat(epochHandler.Id, anchorPubkey, *result.votingStat); err != nil {
-				utils.LogWithTime(fmt.Sprintf("Anchor rotation: failed to store upgraded stat for %s epoch %d: %v", anchorPubkey, epochHandler.Id, err), utils.YELLOW_COLOR)
+
+			mutex := globals.BLOCK_CREATORS_MUTEX_REGISTRY.GetMutex(epochHandler.Id, anchorPubkey)
+
+			// Use mutex before calling .ReadVotingStat()
+			mutex.Lock()
+			defer mutex.Unlock()
+
+			lastVersionOfLocalVotingStats, err := utils.ReadVotingStat(epochHandler.Id, anchorPubkey)
+
+			if err != nil {
+				return nil
 			}
-			return nil
+
+			if result.votingStat.Index > lastVersionOfLocalVotingStats.Index {
+				if err := utils.StoreVotingStat(epochHandler.Id, anchorPubkey, *result.votingStat); err != nil {
+					utils.LogWithTime(fmt.Sprintf("Anchor rotation: failed to store upgraded stat for %s epoch %d: %v", anchorPubkey, epochHandler.Id, err), utils.YELLOW_COLOR)
+				}
+				return nil
+			}
 		}
 
 		if result.signature != "" && !hasReachedTarget {
