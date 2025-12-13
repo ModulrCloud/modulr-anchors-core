@@ -94,6 +94,7 @@ func generateBlock(epochHandlerRef *structures.EpochDataHandler) {
 		metadata.EpochFullId = epochFullID
 		metadata.PrevHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 		metadata.NextIndex = 0
+		globals.MEMPOOL.ClearEpochProofs(epochIndex)
 
 	}
 
@@ -111,8 +112,8 @@ func generateBlock(epochHandlerRef *structures.EpochDataHandler) {
 		restData[key] = value
 	}
 
-	aggregatedRotationProofs := globals.MEMPOOL.DrainAggregatedAnchorRotationProofs()
-	aggregatedLeaderProofs := globals.MEMPOOL.DrainAggregatedLeaderFinalizationProofs()
+	aggregatedRotationProofs := globals.MEMPOOL.DrainAggregatedAnchorRotationProofs(epochIndex)
+	aggregatedLeaderProofs := globals.MEMPOOL.DrainAggregatedLeaderFinalizationProofs(epochIndex)
 
 	extraData := block_pack.ExtraDataToBlock{
 		Rest:                               restData,

@@ -7,17 +7,21 @@ import (
 	"github.com/modulrcloud/modulr-anchors-core/structures"
 )
 
-type Mempool struct {
+type epochProofMempool struct {
 	sync.Mutex
 	aggregatedAnchorRotationProofs     map[string]structures.AggregatedAnchorRotationProof     // proof for modulr-anchors-core logic to rotate anchors on demand
 	aggregatedLeaderFinalizationProofs map[string]structures.AggregatedLeaderFinalizationProof // proof for modulr-core logic to finalize last block by leader
 }
 
-// Mempool to store two types of proofs:
+type Mempool struct {
+	sync.Mutex
+	epochMempools map[int]*epochProofMempool
+}
+
+// Mempool to store two types of proofs, separated by epoch index to avoid cross-epoch mixing:
 
 var MEMPOOL = Mempool{
-	aggregatedAnchorRotationProofs:     make(map[string]structures.AggregatedAnchorRotationProof),
-	aggregatedLeaderFinalizationProofs: make(map[string]structures.AggregatedLeaderFinalizationProof),
+	epochMempools: make(map[int]*epochProofMempool),
 }
 
 func anchorMempoolKey(proof structures.AggregatedAnchorRotationProof) string {
@@ -28,61 +32,109 @@ func leaderMempoolKey(proof structures.AggregatedLeaderFinalizationProof) string
 	return fmt.Sprintf("%d:%s:%d", proof.EpochIndex, proof.Leader, proof.VotingStat.Index)
 }
 
+func newEpochProofMempool() *epochProofMempool {
+	return &epochProofMempool{
+		aggregatedAnchorRotationProofs:     make(map[string]structures.AggregatedAnchorRotationProof),
+		aggregatedLeaderFinalizationProofs: make(map[string]structures.AggregatedLeaderFinalizationProof),
+	}
+}
+
+func (mempool *Mempool) getEpochMempool(epochIndex int) *epochProofMempool {
+	mempool.Lock()
+	defer mempool.Unlock()
+
+	if pool, ok := mempool.epochMempools[epochIndex]; ok {
+		return pool
+	}
+
+	newPool := newEpochProofMempool()
+	mempool.epochMempools[epochIndex] = newPool
+	return newPool
+}
+
 func (mempool *Mempool) AddAggregatedAnchorRotationProof(proof structures.AggregatedAnchorRotationProof) {
 
-	mempool.Lock()
+	pool := mempool.getEpochMempool(proof.EpochIndex)
 
-	mempool.aggregatedAnchorRotationProofs[anchorMempoolKey(proof)] = proof
-	mempool.Unlock()
+	pool.Lock()
+
+	pool.aggregatedAnchorRotationProofs[anchorMempoolKey(proof)] = proof
+	pool.Unlock()
 
 }
 
 func (mempool *Mempool) AddAggregatedLeaderFinalizationProof(proof structures.AggregatedLeaderFinalizationProof) {
 
-	mempool.Lock()
+	pool := mempool.getEpochMempool(proof.EpochIndex)
 
-	mempool.aggregatedLeaderFinalizationProofs[leaderMempoolKey(proof)] = proof
-	mempool.Unlock()
+	pool.Lock()
+
+	pool.aggregatedLeaderFinalizationProofs[leaderMempoolKey(proof)] = proof
+	pool.Unlock()
 
 }
 
-func (mempool *Mempool) DrainAggregatedAnchorRotationProofs() []structures.AggregatedAnchorRotationProof {
+func (mempool *Mempool) DrainAggregatedAnchorRotationProofs(epochIndex int) []structures.AggregatedAnchorRotationProof {
 
-	mempool.Lock()
-	defer mempool.Unlock()
+	pool := mempool.getEpochMempool(epochIndex)
 
-	if len(mempool.aggregatedAnchorRotationProofs) == 0 {
+	pool.Lock()
+	defer pool.Unlock()
+
+	if len(pool.aggregatedAnchorRotationProofs) == 0 {
 		return nil
 	}
 
-	proofs := make([]structures.AggregatedAnchorRotationProof, 0, len(mempool.aggregatedAnchorRotationProofs))
+	proofs := make([]structures.AggregatedAnchorRotationProof, 0, len(pool.aggregatedAnchorRotationProofs))
 
-	for _, proof := range mempool.aggregatedAnchorRotationProofs {
+	for _, proof := range pool.aggregatedAnchorRotationProofs {
 		proofs = append(proofs, proof)
 	}
 
-	mempool.aggregatedAnchorRotationProofs = make(map[string]structures.AggregatedAnchorRotationProof)
+	pool.aggregatedAnchorRotationProofs = make(map[string]structures.AggregatedAnchorRotationProof)
 
 	return proofs
 
 }
 
-func (mempool *Mempool) DrainAggregatedLeaderFinalizationProofs() []structures.AggregatedLeaderFinalizationProof {
+func (mempool *Mempool) ClearEpochProofs(epochIndex int) {
 
+	pool := mempool.getEpochMempool(epochIndex)
+
+	pool.Lock()
+
+	pool.aggregatedAnchorRotationProofs = make(map[string]structures.AggregatedAnchorRotationProof)
+	pool.aggregatedLeaderFinalizationProofs = make(map[string]structures.AggregatedLeaderFinalizationProof)
+
+	pool.Unlock()
+
+}
+
+func (mempool *Mempool) RemoveEpochMempool(epochIndex int) {
 	mempool.Lock()
 	defer mempool.Unlock()
 
-	if len(mempool.aggregatedLeaderFinalizationProofs) == 0 {
+	delete(mempool.epochMempools, epochIndex)
+}
+
+func (mempool *Mempool) DrainAggregatedLeaderFinalizationProofs(epochIndex int) []structures.AggregatedLeaderFinalizationProof {
+
+	pool := mempool.getEpochMempool(epochIndex)
+
+	pool.Lock()
+	defer pool.Unlock()
+
+	if len(pool.aggregatedLeaderFinalizationProofs) == 0 {
 		return nil
 	}
 
-	proofs := make([]structures.AggregatedLeaderFinalizationProof, 0, len(mempool.aggregatedLeaderFinalizationProofs))
+	proofs := make([]structures.AggregatedLeaderFinalizationProof, 0, len(pool.aggregatedLeaderFinalizationProofs))
 
-	for _, proof := range mempool.aggregatedLeaderFinalizationProofs {
+	for _, proof := range pool.aggregatedLeaderFinalizationProofs {
 		proofs = append(proofs, proof)
 	}
 
-	mempool.aggregatedLeaderFinalizationProofs = make(map[string]structures.AggregatedLeaderFinalizationProof)
+	pool.aggregatedLeaderFinalizationProofs = make(map[string]structures.AggregatedLeaderFinalizationProof)
 
 	return proofs
 
