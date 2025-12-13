@@ -2,12 +2,8 @@ package utils
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 	"time"
-
-	"github.com/modulrcloud/modulr-anchors-core/databases"
-	"github.com/modulrcloud/modulr-anchors-core/structures"
 
 	"github.com/gorilla/websocket"
 )
@@ -39,49 +35,6 @@ var WEBSOCKET_CONNECTION_MUTEX sync.RWMutex
 
 // Ensures single writer per websocket connection (gorilla/websocket requirement)
 var WEBSOCKET_WRITE_MUTEX sync.Map // key: pubkey -> *sync.Mutex
-
-func OpenWebsocketConnectionsWithQuorum(quorum []string, wsConnMap map[string]*websocket.Conn) {
-	// Close and remove any existing connections (called once per your note)
-	WEBSOCKET_CONNECTION_MUTEX.Lock()
-	for id, conn := range wsConnMap {
-		if conn != nil {
-			_ = conn.Close()
-		}
-		delete(wsConnMap, id)
-	}
-	WEBSOCKET_CONNECTION_MUTEX.Unlock()
-
-	// Establish new connections for each anchor in the quorum
-	for _, anchorPubkey := range quorum {
-		// Fetch anchor metadata
-		raw, err := databases.APPROVEMENT_THREAD_METADATA.Get([]byte(anchorPubkey+"_ANCHOR_STORAGE"), nil)
-		if err != nil {
-			continue
-		}
-
-		// Parse metadata
-		var anchorStorage structures.AnchorStorage
-		if err := json.Unmarshal(raw, &anchorStorage); err != nil {
-			continue
-		}
-
-		// Skip if no WS URL
-		if anchorStorage.WssAnchorUrl == "" {
-			continue
-		}
-
-		// Dial
-		conn, _, err := websocket.DefaultDialer.Dial(anchorStorage.WssAnchorUrl, nil)
-		if err != nil {
-			continue
-		}
-
-		// Store in the shared map under lock
-		WEBSOCKET_CONNECTION_MUTEX.Lock()
-		wsConnMap[anchorPubkey] = conn
-		WEBSOCKET_CONNECTION_MUTEX.Unlock()
-	}
-}
 
 func NewQuorumWaiter(maxQuorumSize int) *QuorumWaiter {
 	return &QuorumWaiter{
@@ -189,19 +142,8 @@ func getWriteMu(id string) *sync.Mutex {
 
 func reconnectOnce(pubkey string, wsConnMap map[string]*websocket.Conn) {
 
-	// Get anchor metadata
-	raw, err := databases.APPROVEMENT_THREAD_METADATA.Get([]byte(pubkey+"_ANCHOR_STORAGE"), nil)
-	if err != nil {
-		return
-	}
-	var anchorStorage structures.AnchorStorage
-	if err := json.Unmarshal(raw, &anchorStorage); err != nil || anchorStorage.WssAnchorUrl == "" {
-		return
-	}
-
-	// Try a single dial attempt
-	conn, _, err := websocket.DefaultDialer.Dial(anchorStorage.WssAnchorUrl, nil)
-	if err != nil {
+	conn := AcquireWebsocketConnection(pubkey)
+	if conn == nil {
 		return
 	}
 
@@ -257,10 +199,11 @@ func (qw *QuorumWaiter) sendMessages(targets []string, msg []byte, wsConnMap map
 				qw.failed[id] = struct{}{}
 				qw.mu.Unlock()
 
+				ReportWebsocketFailure(id)
 				WEBSOCKET_CONNECTION_MUTEX.Lock()
-				_ = c.Close()
 				delete(wsConnMap, id)
 				WEBSOCKET_CONNECTION_MUTEX.Unlock()
+				ReleaseWebsocketConnection(id)
 				return
 			}
 
@@ -273,10 +216,11 @@ func (qw *QuorumWaiter) sendMessages(targets []string, msg []byte, wsConnMap map
 				qw.failed[id] = struct{}{}
 				qw.mu.Unlock()
 
+				ReportWebsocketFailure(id)
 				WEBSOCKET_CONNECTION_MUTEX.Lock()
-				_ = c.Close()
 				delete(wsConnMap, id)
 				WEBSOCKET_CONNECTION_MUTEX.Unlock()
+				ReleaseWebsocketConnection(id)
 				return
 			}
 
