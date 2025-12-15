@@ -53,7 +53,7 @@ func (h *Handler) OnMessage(connection *gws.Conn, message *gws.Message) {
 
 		GetFinalizationProof(req, connection)
 
-	case "get_block_with_afp":
+	case "get_anchor_block_with_afp":
 
 		var req WsBlockWithAfpRequest
 
