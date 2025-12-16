@@ -20,35 +20,35 @@ const (
 )
 
 var (
-	POD_MU         sync.Mutex
-	POD_WRITE_MU   sync.Mutex
-	POD_CONNECTION *websocket.Conn
+	POD_MUTEX       sync.Mutex      // Guards open/close & replace of PoD conn
+	POD_WRITE_MUTEX sync.Mutex      // Single writer guarantee for PoD
+	POD_CONNECTION  *websocket.Conn // Connection with PoD itself
 )
 
 func SendWebsocketMessageToPoD(msg []byte) ([]byte, error) {
 	for attempt := 1; attempt <= MAX_RETRIES; attempt++ {
-		POD_MU.Lock()
+		POD_MUTEX.Lock()
 		if POD_CONNECTION == nil {
 			conn, err := openWebsocketConnectionWithPoD()
 			if err != nil {
-				POD_MU.Unlock()
+				POD_MUTEX.Unlock()
 				time.Sleep(RETRY_INTERVAL)
 				continue
 			}
 			POD_CONNECTION = conn
 		}
 		c := POD_CONNECTION
-		POD_MU.Unlock()
+		POD_MUTEX.Unlock()
 
-		POD_WRITE_MU.Lock()
+		POD_WRITE_MUTEX.Lock()
 		_ = c.SetWriteDeadline(time.Now().Add(POD_READ_WRITE_DEADLINE))
 		err := c.WriteMessage(websocket.TextMessage, msg)
-		POD_WRITE_MU.Unlock()
+		POD_WRITE_MUTEX.Unlock()
 		if err != nil {
-			POD_MU.Lock()
+			POD_MUTEX.Lock()
 			_ = c.Close()
 			POD_CONNECTION = nil
-			POD_MU.Unlock()
+			POD_MUTEX.Unlock()
 			time.Sleep(RETRY_INTERVAL)
 			continue
 		}
@@ -56,10 +56,10 @@ func SendWebsocketMessageToPoD(msg []byte) ([]byte, error) {
 		_ = c.SetReadDeadline(time.Now().Add(POD_READ_WRITE_DEADLINE))
 		_, resp, err := c.ReadMessage()
 		if err != nil {
-			POD_MU.Lock()
+			POD_MUTEX.Lock()
 			_ = c.Close()
 			POD_CONNECTION = nil
-			POD_MU.Unlock()
+			POD_MUTEX.Unlock()
 			time.Sleep(RETRY_INTERVAL)
 			continue
 		}
