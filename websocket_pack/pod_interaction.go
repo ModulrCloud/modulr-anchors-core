@@ -7,10 +7,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/modulrcloud/modulr-anchors-core/block_pack"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
+
+	"github.com/gorilla/websocket"
 )
 
 const (
