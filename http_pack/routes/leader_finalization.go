@@ -45,7 +45,7 @@ func AcceptAggregatedLeaderFinalizationProof(ctx *fasthttp.RequestCtx) {
 	}
 
 	ctx.SetStatusCode(fasthttp.StatusOK)
-	payload, _ := json.Marshal(structures.AcceptAnchorRotationProofResponse{Accepted: accepted})
+	payload, _ := json.Marshal(structures.AcceptProofResponse{Accepted: accepted})
 	ctx.Write(payload)
 }
 

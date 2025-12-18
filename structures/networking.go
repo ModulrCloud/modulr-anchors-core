@@ -16,10 +16,10 @@ type AcceptAggregatedAnchorRotationProofRequest struct {
 	AggregatedRotationProofs []AggregatedAnchorRotationProof `json:"aggregatedAnchorRotationProofs"`
 }
 
-type AcceptAnchorRotationProofResponse struct {
-	Accepted int `json:"accepted"`
-}
-
 type AcceptLeaderFinalizationProofRequest struct {
 	LeaderFinalizations []AggregatedLeaderFinalizationProof `json:"leaderFinalizations"`
+}
+
+type AcceptProofResponse struct {
+	Accepted int `json:"accepted"`
 }
