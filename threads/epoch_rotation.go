@@ -72,30 +72,6 @@ func EpochRotationThread() {
 
 		}
 
-		keyBytes := []byte("EPOCH_HANDLER:" + strconv.Itoa(epochHandlerRef.Id))
-
-		valBytes, marshalErr := json.Marshal(epochHandlerRef)
-
-		if marshalErr != nil {
-
-			handlers.APPROVEMENT_THREAD_METADATA.RWMutex.Unlock()
-
-			globals.FLOOD_PREVENTION_FLAG_FOR_ROUTES.Store(true)
-
-			panic("Failed to marshal epoch handler: " + marshalErr.Error())
-
-		}
-
-		if err := databases.EPOCH_DATA.Put(keyBytes, valBytes, nil); err != nil {
-
-			handlers.APPROVEMENT_THREAD_METADATA.RWMutex.Unlock()
-
-			globals.FLOOD_PREVENTION_FLAG_FOR_ROUTES.Store(true)
-
-			panic("Failed to store epoch handler: " + err.Error())
-
-		}
-
 		atomicBatch := new(leveldb.Batch)
 
 		nextEpochId := epochHandlerRef.Id + 1

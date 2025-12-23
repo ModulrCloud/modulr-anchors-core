@@ -181,20 +181,6 @@ func loadGenesis() error {
 	handlers.APPROVEMENT_THREAD_METADATA.Handler.SupportedEpochs = []structures.EpochDataHandler{epochHandlerForApprovementThread}
 	handlers.APPROVEMENT_THREAD_METADATA.Handler.SyncEpochPointers()
 
-	// Store epoch data for API
-
-	currentEpochDataHandler := handlers.APPROVEMENT_THREAD_METADATA.Handler.EpochDataHandler
-
-	jsonedCurrentEpochDataHandler, err := json.Marshal(currentEpochDataHandler)
-
-	if err != nil {
-		return fmt.Errorf("marshal genesis epoch handler: %w", err)
-	}
-
-	if err := databases.EPOCH_DATA.Put([]byte("EPOCH_HANDLER:"+strconv.Itoa(currentEpochDataHandler.Id)), jsonedCurrentEpochDataHandler, nil); err != nil {
-		return fmt.Errorf("store genesis epoch handler: %w", err)
-	}
-
 	return nil
 
 }
@@ -227,8 +213,6 @@ func ensureEpochWindow(handler *structures.ApprovementThreadMetadataHandler) err
 
 func loadGenerationThreadMetadata() error {
 	epochHandlers := handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandlers()
-	legacyData, legacyErr := databases.BLOCKS.Get([]byte("GT"), nil)
-	legacyUsed := false
 
 	for _, epoch := range epochHandlers {
 		epochFullID := epoch.Hash + "#" + strconv.Itoa(epoch.Id)
@@ -242,17 +226,6 @@ func loadGenerationThreadMetadata() error {
 			handlers.GENERATION_THREAD_METADATA.Handlers[epochFullID] = &gtHandler
 			handlers.GENERATION_THREAD_METADATA.Unlock()
 			continue
-		}
-		if !legacyUsed && legacyErr == nil {
-			var gtHandler structures.GenerationThreadMetadataHandler
-			if err := json.Unmarshal(legacyData, &gtHandler); err == nil {
-				gtHandler.EpochFullId = epochFullID
-				handlers.GENERATION_THREAD_METADATA.Lock()
-				handlers.GENERATION_THREAD_METADATA.Handlers[epochFullID] = &gtHandler
-				handlers.GENERATION_THREAD_METADATA.Unlock()
-				legacyUsed = true
-				continue
-			}
 		}
 		handlers.GENERATION_THREAD_METADATA.Lock()
 		if _, ok := handlers.GENERATION_THREAD_METADATA.Handlers[epochFullID]; !ok {
