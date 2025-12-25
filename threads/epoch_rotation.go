@@ -132,8 +132,6 @@ func EpochRotationThread() {
 
 		globals.FLOOD_PREVENTION_FLAG_FOR_ROUTES.Store(true)
 
-		time.Sleep(200 * time.Millisecond)
-
 	}
 
 }

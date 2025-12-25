@@ -54,18 +54,27 @@ func ShareBlockAndGetProofsThread() {
 		epochHandlers := handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandlers()
 		handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
 
+		progressed := false
 		for idx := range epochHandlers {
 			epochHandler := &epochHandlers[idx]
 			runtime := ensureFinalizationRuntime(epochHandler)
-			runFinalizationProofsGrabbing(epochHandler, runtime)
+			if runFinalizationProofsGrabbing(epochHandler, runtime) {
+				progressed = true
+			}
 		}
 
-		time.Sleep(200 * time.Millisecond)
+		// If we didn't advance finalization for any epoch, back off to avoid a hot loop.
+		// If we did advance, keep latency low but yield briefly to reduce lock/CPU pressure.
+		if progressed {
+			time.Sleep(5 * time.Millisecond)
+		} else {
+			time.Sleep(200 * time.Millisecond)
+		}
 	}
 
 }
 
-func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, runtime *finalizationRuntime) {
+func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, runtime *finalizationRuntime) bool {
 
 	runtime.Lock()
 	defer runtime.Unlock()
@@ -81,13 +90,13 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 
 			if parseErr := json.Unmarshal(blockDataRaw, runtime.BlockToShare); parseErr != nil {
 
-				return
+				return false
 
 			}
 
 		} else {
 
-			return
+			return false
 
 		}
 
@@ -116,7 +125,7 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 
 			if !ok {
 
-				return
+				return false
 
 			}
 
@@ -169,7 +178,15 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 
 			valueBytes, _ := json.Marshal(aggregatedFinalizationProof)
 
-			databases.EPOCH_DATA.Put(keyBytes, valueBytes, nil)
+			// Persist AFP first; without it we don't want to advance grabber state.
+			if err := databases.EPOCH_DATA.Put(keyBytes, valueBytes, nil); err != nil {
+				return false
+			}
+
+			// Advance grabber state, then persist it (so restart resumes from the latest accepted index/hash/afp).
+			runtime.Grabber.AfpForPrevious = aggregatedFinalizationProof
+			runtime.Grabber.AcceptedIndex++
+			runtime.Grabber.AcceptedHash = runtime.Grabber.HuntingForBlockHash
 
 			proofGrabberKeyBytes := []byte(strconv.Itoa(epochHandler.Id) + ":PROOFS_GRABBER")
 
@@ -180,12 +197,6 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 				proofsGrabberStoreErr := databases.FINALIZATION_VOTING_STATS.Put(proofGrabberKeyBytes, proofGrabberValueBytes, nil)
 
 				if proofsGrabberStoreErr == nil {
-
-					runtime.Grabber.AfpForPrevious = aggregatedFinalizationProof
-
-					runtime.Grabber.AcceptedIndex++
-
-					runtime.Grabber.AcceptedHash = runtime.Grabber.HuntingForBlockHash
 
 					if runtime.Grabber.AcceptedIndex > 0 {
 
@@ -219,22 +230,24 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 					}
 
 					runtime.ProofsCache = make(map[string]string)
+					return true
 
 				} else {
 
-					return
+					return false
 
 				}
 
 			} else {
 
-				return
+				return false
 
 			}
 
 		}
 
 	}
+	return false
 }
 
 func ensureFinalizationRuntime(epochHandler *structures.EpochDataHandler) *finalizationRuntime {
