@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/modulrcloud/modulr-anchors-core/databases"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
@@ -28,6 +29,20 @@ func RunAnchorsChains() {
 
 		return
 
+	}
+
+	// If the current epoch has a scheduled start in the future (e.g. testnet coordinated start),
+	// sleep until that moment before starting any background threads/servers.
+	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
+	startTS := handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandler().StartTimestamp
+	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
+
+	now := uint64(utils.GetUTCTimestampInMilliSeconds())
+	if startTS > 0 && startTS > now {
+		waitMs := startTS - now
+		waitDur := time.Duration(waitMs) * time.Millisecond
+		utils.LogWithTime(fmt.Sprintf("Genesis epoch start is in the future. Sleeping for %s (startTimestamp=%d, now=%d)", waitDur.String(), startTS, now), utils.CYAN_COLOR)
+		time.Sleep(waitDur)
 	}
 
 	//_________________________ RUN SEVERAL LOGICAL THREADS _________________________
