@@ -75,179 +75,160 @@ func ShareBlockAndGetProofsThread() {
 }
 
 func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, runtime *finalizationRuntime) bool {
-
-	runtime.Lock()
-	defer runtime.Unlock()
 	epochIndexStr := strconv.Itoa(epochHandler.Id)
-	blockIndexToHunt := strconv.Itoa(runtime.Grabber.AcceptedIndex + 1)
-	blockIdForHunting := strconv.Itoa(epochHandler.Id) + ":" + globals.CONFIGURATION.PublicKey + ":" + blockIndexToHunt
-	blockIdThatInPointer := strconv.Itoa(epochHandler.Id) + ":" + globals.CONFIGURATION.PublicKey + ":" + strconv.Itoa(runtime.BlockToShare.Index)
 	majority := utils.GetQuorumMajority(epochHandler)
+
+	// Snapshot minimal state under lock, then release it before doing I/O (DB/websocket).
+	runtime.Lock()
+	acceptedIndex := runtime.Grabber.AcceptedIndex
+	acceptedHash := runtime.Grabber.AcceptedHash
+	previousAfp := runtime.Grabber.AfpForPrevious
+	currentBlockIndex := runtime.BlockToShare.Index
+	// Copy current proofs cache (so we don't mutate the shared map while unlocked).
+	localProofs := make(map[string]string, len(runtime.ProofsCache))
+	for k, v := range runtime.ProofsCache {
+		localProofs[k] = v
+	}
+	runtime.Unlock()
+
+	blockIndexToHunt := strconv.Itoa(acceptedIndex + 1)
+	blockIdForHunting := strconv.Itoa(epochHandler.Id) + ":" + globals.CONFIGURATION.PublicKey + ":" + blockIndexToHunt
+	blockIdThatInPointer := strconv.Itoa(epochHandler.Id) + ":" + globals.CONFIGURATION.PublicKey + ":" + strconv.Itoa(currentBlockIndex)
+
+	// Resolve the block we are hunting for (may require DB read).
+	var blockToShare block_pack.Block
 	if blockIdForHunting != blockIdThatInPointer {
-
 		blockDataRaw, errDB := databases.BLOCKS.Get([]byte(blockIdForHunting), nil)
-		if errDB == nil {
-
-			if parseErr := json.Unmarshal(blockDataRaw, runtime.BlockToShare); parseErr != nil {
-
-				return false
-
-			}
-
-		} else {
-
+		if errDB != nil {
 			return false
-
 		}
-
+		if parseErr := json.Unmarshal(blockDataRaw, &blockToShare); parseErr != nil {
+			return false
+		}
+		// Update runtime pointer to the latest block-to-share (quick, under lock).
+		runtime.Lock()
+		*runtime.BlockToShare = blockToShare
+		runtime.Unlock()
+	} else {
+		// Copy pointer value under lock.
+		runtime.Lock()
+		blockToShare = *runtime.BlockToShare
+		runtime.Unlock()
 	}
 
-	blockHash := runtime.BlockToShare.GetHash()
+	blockHash := blockToShare.GetHash()
+
+	// Record hunting markers (quick, under lock).
+	runtime.Lock()
 	runtime.Grabber.HuntingForBlockId = blockIdForHunting
 	runtime.Grabber.HuntingForBlockHash = blockHash
-	if len(runtime.ProofsCache) < majority {
+	runtime.Unlock()
 
+	// Only reach out to quorum if we still need more proofs.
+	if len(localProofs) < majority {
 		message := websocket_pack.WsFinalizationProofRequest{
-
-			Route: "get_finalization_proof",
-
-			Block: *runtime.BlockToShare,
-
-			PreviousBlockAfp: runtime.Grabber.AfpForPrevious,
+			Route:            "get_finalization_proof",
+			Block:            blockToShare,
+			PreviousBlockAfp: previousAfp,
 		}
 
-		if messageJsoned, err := json.Marshal(message); err == nil {
-
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-
-			responses, ok := runtime.Waiter.SendAndWait(ctx, messageJsoned, epochHandler.Quorum, runtime.Connections, majority)
-
-			if !ok {
-
-				return false
-
-			}
-
-			for _, raw := range responses {
-
-				var parsedFinalizationProof websocket_pack.WsFinalizationProofResponse
-
-				if err := json.Unmarshal(raw, &parsedFinalizationProof); err == nil {
-
-					if parsedFinalizationProof.VotedForHash == runtime.Grabber.HuntingForBlockHash {
-
-						dataThatShouldBeSigned := strings.Join(
-
-							[]string{runtime.Grabber.AcceptedHash, runtime.Grabber.HuntingForBlockId, runtime.Grabber.HuntingForBlockHash, epochIndexStr}, ":",
-						)
-
-						finalizationProofIsOk := slices.Contains(epochHandler.Quorum, parsedFinalizationProof.Voter) && cryptography.VerifySignature(
-
-							dataThatShouldBeSigned, parsedFinalizationProof.Voter, parsedFinalizationProof.FinalizationProof,
-						)
-
-						if finalizationProofIsOk {
-
-							runtime.ProofsCache[parsedFinalizationProof.Voter] = parsedFinalizationProof.FinalizationProof
-
-						}
-
-					}
-
-				}
-
-			}
-
+		messageJsoned, err := json.Marshal(message)
+		if err != nil {
+			return false
 		}
 
-		if len(runtime.ProofsCache) >= majority {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
 
-			aggregatedFinalizationProof := structures.AggregatedFinalizationProof{
-
-				PrevBlockHash: runtime.Grabber.AcceptedHash,
-
-				BlockId: blockIdForHunting,
-
-				BlockHash: blockHash,
-
-				Proofs: runtime.ProofsCache,
-			}
-
-			keyBytes := []byte("AFP:" + blockIdForHunting)
-
-			valueBytes, _ := json.Marshal(aggregatedFinalizationProof)
-
-			// Persist AFP first; without it we don't want to advance grabber state.
-			if err := databases.EPOCH_DATA.Put(keyBytes, valueBytes, nil); err != nil {
-				return false
-			}
-
-			// Advance grabber state, then persist it (so restart resumes from the latest accepted index/hash/afp).
-			runtime.Grabber.AfpForPrevious = aggregatedFinalizationProof
-			runtime.Grabber.AcceptedIndex++
-			runtime.Grabber.AcceptedHash = runtime.Grabber.HuntingForBlockHash
-
-			proofGrabberKeyBytes := []byte(strconv.Itoa(epochHandler.Id) + ":PROOFS_GRABBER")
-
-			proofGrabberValueBytes, marshalErr := json.Marshal(runtime.Grabber)
-
-			if marshalErr == nil {
-
-				proofsGrabberStoreErr := databases.FINALIZATION_VOTING_STATS.Put(proofGrabberKeyBytes, proofGrabberValueBytes, nil)
-
-				if proofsGrabberStoreErr == nil {
-
-					if runtime.Grabber.AcceptedIndex > 0 {
-
-						msg := fmt.Sprintf(
-
-							"%sApproved height for epoch %s%d %sis %s%d %s(hash:%s...) %s(%.3f%% agreements)",
-
-							utils.RED_COLOR,
-
-							utils.CYAN_COLOR,
-
-							epochHandler.Id,
-
-							utils.RED_COLOR,
-
-							utils.CYAN_COLOR,
-
-							runtime.Grabber.AcceptedIndex-1,
-
-							utils.CYAN_COLOR,
-
-							runtime.Grabber.AfpForPrevious.PrevBlockHash[:8],
-
-							utils.GREEN_COLOR,
-
-							float64(len(runtime.ProofsCache))/float64(len(epochHandler.Quorum))*100,
-						)
-
-						utils.LogWithTime(msg, utils.WHITE_COLOR)
-
-					}
-
-					runtime.ProofsCache = make(map[string]string)
-					return true
-
-				} else {
-
-					return false
-
-				}
-
-			} else {
-
-				return false
-
-			}
-
+		responses, ok := runtime.Waiter.SendAndWait(ctx, messageJsoned, epochHandler.Quorum, runtime.Connections, majority)
+		if !ok {
+			return false
 		}
 
+		for _, raw := range responses {
+			var parsedFinalizationProof websocket_pack.WsFinalizationProofResponse
+			if err := json.Unmarshal(raw, &parsedFinalizationProof); err != nil {
+				continue
+			}
+			if parsedFinalizationProof.VotedForHash != blockHash {
+				continue
+			}
+
+			dataThatShouldBeSigned := strings.Join(
+				[]string{acceptedHash, blockIdForHunting, blockHash, epochIndexStr}, ":",
+			)
+
+			finalizationProofIsOk := slices.Contains(epochHandler.Quorum, parsedFinalizationProof.Voter) &&
+				cryptography.VerifySignature(dataThatShouldBeSigned, parsedFinalizationProof.Voter, parsedFinalizationProof.FinalizationProof)
+
+			if finalizationProofIsOk {
+				localProofs[parsedFinalizationProof.Voter] = parsedFinalizationProof.FinalizationProof
+			}
+		}
+
+		// Commit latest proofs cache back to runtime (quick, under lock).
+		runtime.Lock()
+		runtime.ProofsCache = localProofs
+		runtime.Unlock()
 	}
-	return false
+
+	if len(localProofs) < majority {
+		return false
+	}
+
+	aggregatedFinalizationProof := structures.AggregatedFinalizationProof{
+		PrevBlockHash: acceptedHash,
+		BlockId:       blockIdForHunting,
+		BlockHash:     blockHash,
+		Proofs:        localProofs,
+	}
+
+	// Persist AFP first (I/O without holding runtime lock).
+	keyBytes := []byte("AFP:" + blockIdForHunting)
+	valueBytes, _ := json.Marshal(aggregatedFinalizationProof)
+	if err := databases.EPOCH_DATA.Put(keyBytes, valueBytes, nil); err != nil {
+		return false
+	}
+
+	// Advance grabber state under lock, take a snapshot to persist, then release lock.
+	runtime.Lock()
+	runtime.Grabber.AfpForPrevious = aggregatedFinalizationProof
+	runtime.Grabber.AcceptedIndex++
+	runtime.Grabber.AcceptedHash = blockHash
+	grabberSnapshot := runtime.Grabber
+	runtime.ProofsCache = make(map[string]string)
+	acceptedIdxForLog := runtime.Grabber.AcceptedIndex
+	prevHashForLog := runtime.Grabber.AfpForPrevious.PrevBlockHash
+	runtime.Unlock()
+
+	// Persist grabber snapshot (I/O without holding runtime lock).
+	proofGrabberKeyBytes := []byte(strconv.Itoa(epochHandler.Id) + ":PROOFS_GRABBER")
+	proofGrabberValueBytes, marshalErr := json.Marshal(grabberSnapshot)
+	if marshalErr != nil {
+		return false
+	}
+	if err := databases.FINALIZATION_VOTING_STATS.Put(proofGrabberKeyBytes, proofGrabberValueBytes, nil); err != nil {
+		return false
+	}
+
+	if acceptedIdxForLog > 0 {
+		msg := fmt.Sprintf(
+			"%sApproved height for epoch %s%d %sis %s%d %s(hash:%s...) %s(%.3f%% agreements)",
+			utils.RED_COLOR,
+			utils.CYAN_COLOR,
+			epochHandler.Id,
+			utils.RED_COLOR,
+			utils.CYAN_COLOR,
+			acceptedIdxForLog-1,
+			utils.CYAN_COLOR,
+			prevHashForLog[:8],
+			utils.GREEN_COLOR,
+			float64(len(localProofs))/float64(len(epochHandler.Quorum))*100,
+		)
+		utils.LogWithTime(msg, utils.WHITE_COLOR)
+	}
+
+	return true
 }
 
 func ensureFinalizationRuntime(epochHandler *structures.EpochDataHandler) *finalizationRuntime {
