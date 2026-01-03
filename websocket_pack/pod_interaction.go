@@ -21,9 +21,9 @@ const (
 )
 
 var (
-	POD_MUTEX       sync.Mutex      // Guards open/close & replace of PoD conn
-	POD_WRITE_MUTEX sync.Mutex      // Single writer guarantee for PoD
-	POD_CONNECTION  *websocket.Conn // Connection with PoD itself
+	POD_MUTEX      sync.Mutex      // Guards open/close & replace of PoD conn
+	POD_RPC_MUTEX  sync.Mutex      // Serializes request/response (write+read) on a single PoD conn
+	POD_CONNECTION *websocket.Conn // Connection with PoD itself
 )
 
 func SendWebsocketMessageToPoD(msg []byte) ([]byte, error) {
@@ -41,11 +41,13 @@ func SendWebsocketMessageToPoD(msg []byte) ([]byte, error) {
 		c := POD_CONNECTION
 		POD_MUTEX.Unlock()
 
-		POD_WRITE_MUTEX.Lock()
+		// A single PoD websocket connection is used as an RPC-style channel (request -> single response).
+		// Serialize the entire write+read to avoid concurrent reads and response mixups.
+		POD_RPC_MUTEX.Lock()
 		_ = c.SetWriteDeadline(time.Now().Add(POD_READ_WRITE_DEADLINE))
 		err := c.WriteMessage(websocket.TextMessage, msg)
-		POD_WRITE_MUTEX.Unlock()
 		if err != nil {
+			POD_RPC_MUTEX.Unlock()
 			POD_MUTEX.Lock()
 			_ = c.Close()
 			POD_CONNECTION = nil
@@ -56,6 +58,7 @@ func SendWebsocketMessageToPoD(msg []byte) ([]byte, error) {
 
 		_ = c.SetReadDeadline(time.Now().Add(POD_READ_WRITE_DEADLINE))
 		_, resp, err := c.ReadMessage()
+		POD_RPC_MUTEX.Unlock()
 		if err != nil {
 			POD_MUTEX.Lock()
 			_ = c.Close()

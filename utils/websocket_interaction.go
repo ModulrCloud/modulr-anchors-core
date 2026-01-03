@@ -21,7 +21,7 @@ type QuorumWaiter struct {
 	mu         sync.Mutex
 	buf        []string
 	failed     map[string]struct{}
-	writeMu    sync.Map // key: pubkey -> *sync.Mutex (per-waiter, avoids global growth)
+	ioMu       sync.Map // key: pubkey -> *sync.Mutex (per-waiter, serializes write+read)
 }
 
 type QuorumResponse struct {
@@ -176,12 +176,12 @@ func (qw *QuorumWaiter) SendAndWait(
 	}
 }
 
-func (qw *QuorumWaiter) getWriteMu(id string) *sync.Mutex {
-	if m, ok := qw.writeMu.Load(id); ok {
+func (qw *QuorumWaiter) getIOMu(id string) *sync.Mutex {
+	if m, ok := qw.ioMu.Load(id); ok {
 		return m.(*sync.Mutex)
 	}
 	m := &sync.Mutex{}
-	actual, _ := qw.writeMu.LoadOrStore(id, m)
+	actual, _ := qw.ioMu.LoadOrStore(id, m)
 	return actual.(*sync.Mutex)
 }
 
@@ -244,12 +244,13 @@ func (qw *QuorumWaiter) sendMessages(targets []string, msg []byte, wsConnMap map
 		}
 
 		go func(id string, c *websocket.Conn) {
-			// Single-writer guard for this websocket
-			wmu := qw.getWriteMu(id)
-			wmu.Lock()
+			// Gorilla websocket requires a single reader and a single writer per connection.
+			// Serialize the whole request/response (write+read) for this conn.
+			iomu := qw.getIOMu(id)
+			iomu.Lock()
 			err := c.WriteMessage(websocket.TextMessage, msg)
-			wmu.Unlock()
 			if err != nil {
+				iomu.Unlock()
 				// Mark as failed and remove the connection safely
 				qw.mu.Lock()
 				qw.failed[id] = struct{}{}
@@ -265,6 +266,7 @@ func (qw *QuorumWaiter) sendMessages(targets []string, msg []byte, wsConnMap map
 			// Short read deadline for reply
 			_ = c.SetReadDeadline(time.Now().Add(time.Second))
 			_, raw, err := c.ReadMessage()
+			iomu.Unlock()
 			if err != nil {
 				// Mark as failed and remove the connection safely
 				qw.mu.Lock()
