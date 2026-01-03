@@ -133,3 +133,16 @@ func storeSnapshot(epochID int, creator string, stat structures.VotingStat) {
 func snapshotKey(epochID int, creator string) string {
 	return strconv.Itoa(epochID) + ":" + creator
 }
+
+// DeleteHealthSnapshotsForEpoch removes all cached health snapshots for the provided epoch.
+// Without this cleanup, snapshots for dropped epochs accumulate in memory indefinitely.
+func DeleteHealthSnapshotsForEpoch(epochID int) {
+	prefix := strconv.Itoa(epochID) + ":"
+	creatorSnapshots.Lock()
+	for k := range creatorSnapshots.data {
+		if strings.HasPrefix(k, prefix) {
+			delete(creatorSnapshots.data, k)
+		}
+	}
+	creatorSnapshots.Unlock()
+}
