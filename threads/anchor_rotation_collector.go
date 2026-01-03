@@ -19,7 +19,7 @@ import (
 	"github.com/modulrcloud/modulr-anchors-core/utils"
 )
 
-var httpClient = &http.Client{Timeout: 5 * time.Second}
+var HTTP_CLIENT = &http.Client{Timeout: 5 * time.Second}
 
 func AnchorRotationCollectorThread() {
 
@@ -159,7 +159,7 @@ func collectRotationSignatures(epochHandler *structures.EpochDataHandler, anchor
 			}
 			req.Header.Set("Content-Type", "application/json")
 
-			resp, err := httpClient.Do(req)
+			resp, err := HTTP_CLIENT.Do(req)
 			if err != nil {
 				return
 			}
@@ -248,7 +248,7 @@ func postJSON(url string, payload []byte) ([]byte, int, error) {
 		return nil, 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := httpClient.Do(req)
+	resp, err := HTTP_CLIENT.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}

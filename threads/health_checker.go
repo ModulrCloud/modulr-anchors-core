@@ -13,17 +13,17 @@ import (
 	"github.com/modulrcloud/modulr-anchors-core/utils"
 )
 
-type creatorSnapshot struct {
+type AnchorHealthSnapshot struct {
 	Index int
 	Hash  string
 }
 
-var creatorSnapshots = struct {
+var HEALTH_SNAPSHOTS_PER_ANCHOR = struct {
 	sync.Mutex
-	data map[string]creatorSnapshot
-}{data: make(map[string]creatorSnapshot)}
+	data map[string]AnchorHealthSnapshot
+}{data: make(map[string]AnchorHealthSnapshot)}
 
-// HealthCheckerThread monitors block creators for stalled progress.
+// HealthCheckerThread monitors anchors for stalled progress.
 func HealthCheckerThread() {
 	intervalMs := globals.GENESIS.NetworkParameters.BlockCreatorsHealthCheckIntervalMs
 	if intervalMs <= 0 {
@@ -34,11 +34,11 @@ func HealthCheckerThread() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		checkCreatorsHealth()
+		checkAnchorHealth()
 	}
 }
 
-func checkCreatorsHealth() {
+func checkAnchorHealth() {
 	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
 	epochHandlers := handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandlers()
 	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
@@ -69,7 +69,7 @@ func checkCreatorsHealth() {
 				continue
 			}
 
-			if evaluateCreatorProgress(epochHandler.Id, creator, votingStat) {
+			if evaluateAnchorProgress(epochHandler.Id, creator, votingStat) {
 				stalledCreators++
 			}
 		}
@@ -88,13 +88,13 @@ func checkCreatorsHealth() {
 	)
 }
 
-func evaluateCreatorProgress(epochID int, creator string, current structures.VotingStat) bool {
+func evaluateAnchorProgress(epochID int, creator string, current structures.VotingStat) bool {
 
 	key := snapshotKey(epochID, creator)
 
-	creatorSnapshots.Lock()
-	previous, hasPrevious := creatorSnapshots.data[key]
-	creatorSnapshots.Unlock()
+	HEALTH_SNAPSHOTS_PER_ANCHOR.Lock()
+	previous, hasPrevious := HEALTH_SNAPSHOTS_PER_ANCHOR.data[key]
+	HEALTH_SNAPSHOTS_PER_ANCHOR.Unlock()
 
 	if !hasPrevious {
 		storeSnapshot(epochID, creator, current)
@@ -113,9 +113,9 @@ func evaluateCreatorProgress(epochID int, creator string, current structures.Vot
 				utils.YELLOW_COLOR,
 			)
 		}
-		creatorSnapshots.Lock()
-		delete(creatorSnapshots.data, key)
-		creatorSnapshots.Unlock()
+		HEALTH_SNAPSHOTS_PER_ANCHOR.Lock()
+		delete(HEALTH_SNAPSHOTS_PER_ANCHOR.data, key)
+		HEALTH_SNAPSHOTS_PER_ANCHOR.Unlock()
 		return true
 	}
 
@@ -125,9 +125,9 @@ func evaluateCreatorProgress(epochID int, creator string, current structures.Vot
 
 func storeSnapshot(epochID int, creator string, stat structures.VotingStat) {
 	key := snapshotKey(epochID, creator)
-	creatorSnapshots.Lock()
-	creatorSnapshots.data[key] = creatorSnapshot{Index: stat.Index, Hash: stat.Hash}
-	creatorSnapshots.Unlock()
+	HEALTH_SNAPSHOTS_PER_ANCHOR.Lock()
+	HEALTH_SNAPSHOTS_PER_ANCHOR.data[key] = AnchorHealthSnapshot{Index: stat.Index, Hash: stat.Hash}
+	HEALTH_SNAPSHOTS_PER_ANCHOR.Unlock()
 }
 
 func snapshotKey(epochID int, creator string) string {
@@ -138,11 +138,11 @@ func snapshotKey(epochID int, creator string) string {
 // Without this cleanup, snapshots for dropped epochs accumulate in memory indefinitely.
 func DeleteHealthSnapshotsForEpoch(epochID int) {
 	prefix := strconv.Itoa(epochID) + ":"
-	creatorSnapshots.Lock()
-	for k := range creatorSnapshots.data {
+	HEALTH_SNAPSHOTS_PER_ANCHOR.Lock()
+	for k := range HEALTH_SNAPSHOTS_PER_ANCHOR.data {
 		if strings.HasPrefix(k, prefix) {
-			delete(creatorSnapshots.data, k)
+			delete(HEALTH_SNAPSHOTS_PER_ANCHOR.data, k)
 		}
 	}
-	creatorSnapshots.Unlock()
+	HEALTH_SNAPSHOTS_PER_ANCHOR.Unlock()
 }
