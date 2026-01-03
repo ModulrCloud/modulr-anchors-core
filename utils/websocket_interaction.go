@@ -21,6 +21,7 @@ type QuorumWaiter struct {
 	mu         sync.Mutex
 	buf        []string
 	failed     map[string]struct{}
+	writeMu    sync.Map // key: pubkey -> *sync.Mutex (per-waiter, avoids global growth)
 }
 
 type QuorumResponse struct {
@@ -36,9 +37,6 @@ const (
 
 // Protects concurrent access to wsConnMap (map[string]*websocket.Conn)
 var WEBSOCKET_CONNECTION_MUTEX sync.RWMutex
-
-// Ensures single writer per websocket connection (gorilla/websocket requirement)
-var WEBSOCKET_WRITE_MUTEX sync.Map // key: pubkey -> *sync.Mutex
 
 func OpenWebsocketConnectionsWithQuorum(quorum []string, wsConnMap map[string]*websocket.Conn) {
 	// Close and remove any existing connections (called once per your note)
@@ -178,12 +176,12 @@ func (qw *QuorumWaiter) SendAndWait(
 	}
 }
 
-func getWriteMu(id string) *sync.Mutex {
-	if m, ok := WEBSOCKET_WRITE_MUTEX.Load(id); ok {
+func (qw *QuorumWaiter) getWriteMu(id string) *sync.Mutex {
+	if m, ok := qw.writeMu.Load(id); ok {
 		return m.(*sync.Mutex)
 	}
 	m := &sync.Mutex{}
-	actual, _ := WEBSOCKET_WRITE_MUTEX.LoadOrStore(id, m)
+	actual, _ := qw.writeMu.LoadOrStore(id, m)
 	return actual.(*sync.Mutex)
 }
 
@@ -247,7 +245,7 @@ func (qw *QuorumWaiter) sendMessages(targets []string, msg []byte, wsConnMap map
 
 		go func(id string, c *websocket.Conn) {
 			// Single-writer guard for this websocket
-			wmu := getWriteMu(id)
+			wmu := qw.getWriteMu(id)
 			wmu.Lock()
 			err := c.WriteMessage(websocket.TextMessage, msg)
 			wmu.Unlock()

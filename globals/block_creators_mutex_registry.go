@@ -2,6 +2,7 @@ package globals
 
 import (
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -42,4 +43,17 @@ func (registry *BlockCreatorsMutexRegistry) GetMutex(epochIndex int, creator str
 	registry.data[key] = mutex
 
 	return mutex
+}
+
+// DeleteEpoch removes all cached creator mutexes for the provided epoch index.
+// This prevents unbounded growth of the registry across epochs.
+func (registry *BlockCreatorsMutexRegistry) DeleteEpoch(epochIndex int) {
+	prefix := strconv.Itoa(epochIndex) + ":"
+	registry.Lock()
+	defer registry.Unlock()
+	for key := range registry.data {
+		if strings.HasPrefix(key, prefix) {
+			delete(registry.data, key)
+		}
+	}
 }
