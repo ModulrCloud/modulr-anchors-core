@@ -29,12 +29,6 @@ type QuorumResponse struct {
 	msg []byte
 }
 
-const (
-	MAX_RETRIES             = 3
-	RETRY_INTERVAL          = 200 * time.Millisecond
-	POD_READ_WRITE_DEADLINE = 2 * time.Second // timeout for read/write operations for POD (point of distribution)
-)
-
 // Protects concurrent access to wsConnMap (map[string]*websocket.Conn)
 var WEBSOCKET_CONNECTION_MUTEX sync.RWMutex
 
