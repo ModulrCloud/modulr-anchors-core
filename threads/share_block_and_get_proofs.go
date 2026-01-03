@@ -31,7 +31,7 @@ type ProofsGrabber struct {
 	HuntingForBlockHash string
 }
 
-type finalizationRuntime struct {
+type FinalizationRuntime struct {
 	sync.Mutex
 	Grabber      ProofsGrabber
 	ProofsCache  map[string]string
@@ -41,11 +41,11 @@ type finalizationRuntime struct {
 	Waiter       *utils.QuorumWaiter
 }
 
-var finalizationRuntimes = struct {
+var FINALIZATION_RUNTIMES = struct {
 	sync.RWMutex
-	Data map[int]*finalizationRuntime
+	Data map[int]*FinalizationRuntime
 }{
-	Data: make(map[int]*finalizationRuntime),
+	Data: make(map[int]*FinalizationRuntime),
 }
 
 func ShareBlockAndGetProofsThread() {
@@ -75,7 +75,7 @@ func ShareBlockAndGetProofsThread() {
 
 }
 
-func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, runtime *finalizationRuntime) bool {
+func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, runtime *FinalizationRuntime) bool {
 	epochIndexStr := strconv.Itoa(epochHandler.Id)
 	majority := utils.GetQuorumMajority(epochHandler)
 
@@ -232,20 +232,20 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 	return true
 }
 
-func ensureFinalizationRuntime(epochHandler *structures.EpochDataHandler) *finalizationRuntime {
-	finalizationRuntimes.RLock()
-	if runtime, ok := finalizationRuntimes.Data[epochHandler.Id]; ok {
-		finalizationRuntimes.RUnlock()
+func ensureFinalizationRuntime(epochHandler *structures.EpochDataHandler) *FinalizationRuntime {
+	FINALIZATION_RUNTIMES.RLock()
+	if runtime, ok := FINALIZATION_RUNTIMES.Data[epochHandler.Id]; ok {
+		FINALIZATION_RUNTIMES.RUnlock()
 		return runtime
 	}
-	finalizationRuntimes.RUnlock()
+	FINALIZATION_RUNTIMES.RUnlock()
 
-	finalizationRuntimes.Lock()
-	defer finalizationRuntimes.Unlock()
-	if runtime, ok := finalizationRuntimes.Data[epochHandler.Id]; ok {
+	FINALIZATION_RUNTIMES.Lock()
+	defer FINALIZATION_RUNTIMES.Unlock()
+	if runtime, ok := FINALIZATION_RUNTIMES.Data[epochHandler.Id]; ok {
 		return runtime
 	}
-	runtime := &finalizationRuntime{
+	runtime := &FinalizationRuntime{
 		ProofsCache:  make(map[string]string),
 		BlockToShare: &block_pack.Block{Index: -1},
 		Connections:  make(map[string]*websocket.Conn),
@@ -257,17 +257,17 @@ func ensureFinalizationRuntime(epochHandler *structures.EpochDataHandler) *final
 	runtime.Grabber = grabber
 	utils.OpenWebsocketConnectionsWithQuorum(epochHandler.Quorum, runtime.Connections, &runtime.ConnMu)
 	runtime.Waiter = utils.NewQuorumWaiter(len(epochHandler.Quorum))
-	finalizationRuntimes.Data[epochHandler.Id] = runtime
+	FINALIZATION_RUNTIMES.Data[epochHandler.Id] = runtime
 	return runtime
 }
 
 func removeFinalizationRuntime(epochId int) {
-	finalizationRuntimes.Lock()
-	defer finalizationRuntimes.Unlock()
-	if runtime, ok := finalizationRuntimes.Data[epochId]; ok {
+	FINALIZATION_RUNTIMES.Lock()
+	defer FINALIZATION_RUNTIMES.Unlock()
+	if runtime, ok := FINALIZATION_RUNTIMES.Data[epochId]; ok {
 		for _, conn := range runtime.Connections {
 			conn.Close()
 		}
-		delete(finalizationRuntimes.Data, epochId)
+		delete(FINALIZATION_RUNTIMES.Data, epochId)
 	}
 }
