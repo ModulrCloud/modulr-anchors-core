@@ -14,7 +14,7 @@ type epochProofMempool struct {
 }
 
 type Mempool struct {
-	sync.Mutex
+	sync.RWMutex
 	epochMempools map[int]*epochProofMempool
 }
 
@@ -40,13 +40,20 @@ func newEpochProofMempool() *epochProofMempool {
 }
 
 func (mempool *Mempool) getEpochMempool(epochIndex int) *epochProofMempool {
+	// Fast path: read lock for existing pool (common case).
+	mempool.RLock()
+	if pool, ok := mempool.epochMempools[epochIndex]; ok {
+		mempool.RUnlock()
+		return pool
+	}
+	mempool.RUnlock()
+
+	// Slow path: create under write lock (double-check to avoid races).
 	mempool.Lock()
 	defer mempool.Unlock()
-
 	if pool, ok := mempool.epochMempools[epochIndex]; ok {
 		return pool
 	}
-
 	newPool := newEpochProofMempool()
 	mempool.epochMempools[epochIndex] = newPool
 	return newPool
