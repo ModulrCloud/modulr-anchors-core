@@ -37,6 +37,7 @@ type finalizationRuntime struct {
 	ProofsCache  map[string]string
 	BlockToShare *block_pack.Block
 	Connections  map[string]*websocket.Conn
+	ConnMu       sync.RWMutex
 	Waiter       *utils.QuorumWaiter
 }
 
@@ -140,7 +141,7 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 
-		responses, ok := runtime.Waiter.SendAndWait(ctx, messageJsoned, epochHandler.Quorum, runtime.Connections, majority)
+		responses, ok := runtime.Waiter.SendAndWait(ctx, messageJsoned, epochHandler.Quorum, runtime.Connections, &runtime.ConnMu, majority)
 		if !ok {
 			return false
 		}
@@ -254,7 +255,7 @@ func ensureFinalizationRuntime(epochHandler *structures.EpochDataHandler) *final
 		json.Unmarshal(rawGrabber, &grabber)
 	}
 	runtime.Grabber = grabber
-	utils.OpenWebsocketConnectionsWithQuorum(epochHandler.Quorum, runtime.Connections)
+	utils.OpenWebsocketConnectionsWithQuorum(epochHandler.Quorum, runtime.Connections, &runtime.ConnMu)
 	runtime.Waiter = utils.NewQuorumWaiter(len(epochHandler.Quorum))
 	finalizationRuntimes.Data[epochHandler.Id] = runtime
 	return runtime
