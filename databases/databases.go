@@ -7,17 +7,17 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
+type NamedDb struct {
+	name string
+	db   **leveldb.DB
+}
+
 var BLOCKS, EPOCH_DATA, APPROVEMENT_THREAD_METADATA, FINALIZATION_VOTING_STATS *leveldb.DB
 
 // CloseAll safely closes all initialized LevelDB instances
 func CloseAll() error {
 
-	type namedDB struct {
-		name string
-		db   **leveldb.DB
-	}
-
-	databases := []namedDB{
+	databases := []NamedDb{
 		{name: "BLOCKS", db: &BLOCKS},
 		{name: "EPOCH_DATA", db: &EPOCH_DATA},
 		{name: "APPROVEMENT_THREAD_METADATA", db: &APPROVEMENT_THREAD_METADATA},
