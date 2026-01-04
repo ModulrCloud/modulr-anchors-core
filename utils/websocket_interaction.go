@@ -21,7 +21,7 @@ type QuorumWaiter struct {
 	mu         sync.Mutex
 	buf        []string
 	failed     map[string]struct{}
-	writeMu    sync.Map // key: pubkey -> *sync.Mutex (per-waiter, avoids global growth)
+	ioMu       sync.Map // key: pubkey -> *sync.Mutex (per-waiter, serializes write+read)
 }
 
 type QuorumResponse struct {
@@ -29,25 +29,16 @@ type QuorumResponse struct {
 	msg []byte
 }
 
-const (
-	MAX_RETRIES             = 3
-	RETRY_INTERVAL          = 200 * time.Millisecond
-	POD_READ_WRITE_DEADLINE = 2 * time.Second // timeout for read/write operations for POD (point of distribution)
-)
-
-// Protects concurrent access to wsConnMap (map[string]*websocket.Conn)
-var WEBSOCKET_CONNECTION_MUTEX sync.RWMutex
-
-func OpenWebsocketConnectionsWithQuorum(quorum []string, wsConnMap map[string]*websocket.Conn) {
-	// Close and remove any existing connections (called once per your note)
-	WEBSOCKET_CONNECTION_MUTEX.Lock()
+func OpenWebsocketConnectionsWithQuorum(quorum []string, wsConnMap map[string]*websocket.Conn, wsConnMu *sync.RWMutex) {
+	// Close and remove any existing connections
+	wsConnMu.Lock()
 	for id, conn := range wsConnMap {
 		if conn != nil {
 			_ = conn.Close()
 		}
 		delete(wsConnMap, id)
 	}
-	WEBSOCKET_CONNECTION_MUTEX.Unlock()
+	wsConnMu.Unlock()
 
 	// Establish new connections for each anchor in the quorum
 	for _, anchorPubkey := range quorum {
@@ -75,9 +66,9 @@ func OpenWebsocketConnectionsWithQuorum(quorum []string, wsConnMap map[string]*w
 		}
 
 		// Store in the shared map under lock
-		WEBSOCKET_CONNECTION_MUTEX.Lock()
+		wsConnMu.Lock()
 		wsConnMap[anchorPubkey] = conn
-		WEBSOCKET_CONNECTION_MUTEX.Unlock()
+		wsConnMu.Unlock()
 	}
 }
 
@@ -95,7 +86,7 @@ func NewQuorumWaiter(maxQuorumSize int) *QuorumWaiter {
 
 func (qw *QuorumWaiter) SendAndWait(
 	ctx context.Context, message []byte, quorum []string,
-	wsConnMap map[string]*websocket.Conn, majority int,
+	wsConnMap map[string]*websocket.Conn, wsConnMu *sync.RWMutex, majority int,
 ) (map[string][]byte, bool) {
 
 	// Reset state
@@ -123,7 +114,7 @@ func (qw *QuorumWaiter) SendAndWait(
 	qw.done = make(chan struct{})
 
 	// First send to the whole quorum
-	qw.sendMessages(quorum, message, wsConnMap)
+	qw.sendMessages(quorum, message, wsConnMap, wsConnMu)
 
 	for {
 		select {
@@ -147,7 +138,7 @@ func (qw *QuorumWaiter) SendAndWait(
 				qw.mu.Unlock()
 
 				// one-shot reconnect of failed nodes
-				qw.reconnectFailed(wsConnMap)
+				qw.reconnectFailed(wsConnMap, wsConnMu)
 				return out, true
 			}
 
@@ -163,29 +154,29 @@ func (qw *QuorumWaiter) SendAndWait(
 			qw.mu.Unlock()
 
 			if len(qw.buf) == 0 {
-				qw.reconnectFailed(wsConnMap)
+				qw.reconnectFailed(wsConnMap, wsConnMu)
 				return nil, false
 			}
 			qw.timer.Reset(time.Second)
-			qw.sendMessages(qw.buf, message, wsConnMap)
+			qw.sendMessages(qw.buf, message, wsConnMap, wsConnMu)
 
 		case <-ctx.Done():
-			qw.reconnectFailed(wsConnMap)
+			qw.reconnectFailed(wsConnMap, wsConnMu)
 			return nil, false
 		}
 	}
 }
 
-func (qw *QuorumWaiter) getWriteMu(id string) *sync.Mutex {
-	if m, ok := qw.writeMu.Load(id); ok {
+func (qw *QuorumWaiter) getIOMu(id string) *sync.Mutex {
+	if m, ok := qw.ioMu.Load(id); ok {
 		return m.(*sync.Mutex)
 	}
 	m := &sync.Mutex{}
-	actual, _ := qw.writeMu.LoadOrStore(id, m)
+	actual, _ := qw.ioMu.LoadOrStore(id, m)
 	return actual.(*sync.Mutex)
 }
 
-func reconnectOnce(pubkey string, wsConnMap map[string]*websocket.Conn) {
+func reconnectOnce(pubkey string, wsConnMap map[string]*websocket.Conn, wsConnMu *sync.RWMutex) {
 
 	// Get anchor metadata
 	raw, err := databases.APPROVEMENT_THREAD_METADATA.Get([]byte(pubkey+"_ANCHOR_STORAGE"), nil)
@@ -204,15 +195,15 @@ func reconnectOnce(pubkey string, wsConnMap map[string]*websocket.Conn) {
 	}
 
 	// Store back into the shared map under lock
-	WEBSOCKET_CONNECTION_MUTEX.Lock()
+	wsConnMu.Lock()
 
 	wsConnMap[pubkey] = conn
 
-	WEBSOCKET_CONNECTION_MUTEX.Unlock()
+	wsConnMu.Unlock()
 
 }
 
-func (qw *QuorumWaiter) reconnectFailed(wsConnMap map[string]*websocket.Conn) {
+func (qw *QuorumWaiter) reconnectFailed(wsConnMap map[string]*websocket.Conn, wsConnMu *sync.RWMutex) {
 	qw.mu.Lock()
 	failedCopy := make([]string, 0, len(qw.failed))
 	for id := range qw.failed {
@@ -225,16 +216,16 @@ func (qw *QuorumWaiter) reconnectFailed(wsConnMap map[string]*websocket.Conn) {
 	qw.mu.Unlock()
 
 	for _, id := range failedCopy {
-		reconnectOnce(id, wsConnMap)
+		reconnectOnce(id, wsConnMap, wsConnMu)
 	}
 }
 
-func (qw *QuorumWaiter) sendMessages(targets []string, msg []byte, wsConnMap map[string]*websocket.Conn) {
+func (qw *QuorumWaiter) sendMessages(targets []string, msg []byte, wsConnMap map[string]*websocket.Conn, wsConnMu *sync.RWMutex) {
 	for _, id := range targets {
 		// Read connection from the shared map under RLock
-		WEBSOCKET_CONNECTION_MUTEX.RLock()
+		wsConnMu.RLock()
 		conn, ok := wsConnMap[id]
-		WEBSOCKET_CONNECTION_MUTEX.RUnlock()
+		wsConnMu.RUnlock()
 		if !ok || conn == nil {
 			// Mark as failed so we try to reconnect after the round
 			qw.mu.Lock()
@@ -244,37 +235,39 @@ func (qw *QuorumWaiter) sendMessages(targets []string, msg []byte, wsConnMap map
 		}
 
 		go func(id string, c *websocket.Conn) {
-			// Single-writer guard for this websocket
-			wmu := qw.getWriteMu(id)
-			wmu.Lock()
+			// Gorilla websocket requires a single reader and a single writer per connection.
+			// Serialize the whole request/response (write+read) for this conn.
+			iomu := qw.getIOMu(id)
+			iomu.Lock()
 			err := c.WriteMessage(websocket.TextMessage, msg)
-			wmu.Unlock()
 			if err != nil {
+				iomu.Unlock()
 				// Mark as failed and remove the connection safely
 				qw.mu.Lock()
 				qw.failed[id] = struct{}{}
 				qw.mu.Unlock()
 
-				WEBSOCKET_CONNECTION_MUTEX.Lock()
+				wsConnMu.Lock()
 				_ = c.Close()
 				delete(wsConnMap, id)
-				WEBSOCKET_CONNECTION_MUTEX.Unlock()
+				wsConnMu.Unlock()
 				return
 			}
 
 			// Short read deadline for reply
 			_ = c.SetReadDeadline(time.Now().Add(time.Second))
 			_, raw, err := c.ReadMessage()
+			iomu.Unlock()
 			if err != nil {
 				// Mark as failed and remove the connection safely
 				qw.mu.Lock()
 				qw.failed[id] = struct{}{}
 				qw.mu.Unlock()
 
-				WEBSOCKET_CONNECTION_MUTEX.Lock()
+				wsConnMu.Lock()
 				_ = c.Close()
 				delete(wsConnMap, id)
-				WEBSOCKET_CONNECTION_MUTEX.Unlock()
+				wsConnMu.Unlock()
 				return
 			}
 

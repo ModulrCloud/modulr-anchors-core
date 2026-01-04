@@ -218,6 +218,7 @@ func ensureEpochWindow(handler *structures.ApprovementThreadMetadataHandler) err
 			}
 			epochFullID := dropped.Hash + "#" + strconv.Itoa(dropped.Id)
 			globals.BLOCK_CREATORS_MUTEX_REGISTRY.DeleteEpoch(dropped.Id)
+			threads.DeleteHealthSnapshotsForEpoch(dropped.Id)
 			if err := databases.BLOCKS.Delete([]byte("GT:"+epochFullID), nil); err != nil {
 				return fmt.Errorf("delete blocks for epoch %s: %w", epochFullID, err)
 			}

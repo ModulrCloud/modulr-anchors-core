@@ -110,6 +110,7 @@ func EpochRotationThread() {
 
 			globals.MEMPOOL.RemoveEpochMempool(dropped.Id)
 			globals.BLOCK_CREATORS_MUTEX_REGISTRY.DeleteEpoch(dropped.Id)
+			DeleteHealthSnapshotsForEpoch(dropped.Id)
 
 			if err := databases.BLOCKS.Delete([]byte("GT:"+epochFullID), nil); err != nil {
 				utils.LogWithTime("Failed to delete generation metadata: "+err.Error(), utils.RED_COLOR)

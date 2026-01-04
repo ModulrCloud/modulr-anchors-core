@@ -15,52 +15,55 @@ import (
 )
 
 const (
-	MAX_RETRIES             = 3
-	RETRY_INTERVAL          = 200 * time.Millisecond
-	POD_READ_WRITE_DEADLINE = 2 * time.Second // timeout for read/write operations for POD (point of distribution)
+	MAX_RETRIES         = 3
+	RETRY_INTERVAL      = 200 * time.Millisecond
+	READ_WRITE_DEADLINE = 2 * time.Second // timeout for read/write operations for POD (point of distribution)
 )
 
 var (
-	POD_MUTEX       sync.Mutex      // Guards open/close & replace of PoD conn
-	POD_WRITE_MUTEX sync.Mutex      // Single writer guarantee for PoD
-	POD_CONNECTION  *websocket.Conn // Connection with PoD itself
+	ANCHORS_POD_ACCESS_MUTEX     sync.Mutex      // Guards open/close & replace of PoD conn
+	ANCHORS_POD_READ_WRITE_MUTEX sync.Mutex      // Serializes request/response (write+read) on a single PoD conn
+	ANCHORS_POD_CONNECTION       *websocket.Conn // Connection with PoD itself
 )
 
-func SendWebsocketMessageToPoD(msg []byte) ([]byte, error) {
+func SendWebsocketMessageToAnchorsPoD(msg []byte) ([]byte, error) {
 	for attempt := 1; attempt <= MAX_RETRIES; attempt++ {
-		POD_MUTEX.Lock()
-		if POD_CONNECTION == nil {
-			conn, err := openWebsocketConnectionWithPoD()
+		ANCHORS_POD_ACCESS_MUTEX.Lock()
+		if ANCHORS_POD_CONNECTION == nil {
+			conn, err := openWebsocketConnectionWithAnchorsPoD()
 			if err != nil {
-				POD_MUTEX.Unlock()
+				ANCHORS_POD_ACCESS_MUTEX.Unlock()
 				time.Sleep(RETRY_INTERVAL)
 				continue
 			}
-			POD_CONNECTION = conn
+			ANCHORS_POD_CONNECTION = conn
 		}
-		c := POD_CONNECTION
-		POD_MUTEX.Unlock()
+		c := ANCHORS_POD_CONNECTION
+		ANCHORS_POD_ACCESS_MUTEX.Unlock()
 
-		POD_WRITE_MUTEX.Lock()
-		_ = c.SetWriteDeadline(time.Now().Add(POD_READ_WRITE_DEADLINE))
+		// A single PoD websocket connection is used as an RPC-style channel (request -> single response).
+		// Serialize the entire write+read to avoid concurrent reads and response mixups.
+		ANCHORS_POD_READ_WRITE_MUTEX.Lock()
+		_ = c.SetWriteDeadline(time.Now().Add(READ_WRITE_DEADLINE))
 		err := c.WriteMessage(websocket.TextMessage, msg)
-		POD_WRITE_MUTEX.Unlock()
 		if err != nil {
-			POD_MUTEX.Lock()
+			ANCHORS_POD_READ_WRITE_MUTEX.Unlock()
+			ANCHORS_POD_ACCESS_MUTEX.Lock()
 			_ = c.Close()
-			POD_CONNECTION = nil
-			POD_MUTEX.Unlock()
+			ANCHORS_POD_CONNECTION = nil
+			ANCHORS_POD_ACCESS_MUTEX.Unlock()
 			time.Sleep(RETRY_INTERVAL)
 			continue
 		}
 
-		_ = c.SetReadDeadline(time.Now().Add(POD_READ_WRITE_DEADLINE))
+		_ = c.SetReadDeadline(time.Now().Add(READ_WRITE_DEADLINE))
 		_, resp, err := c.ReadMessage()
+		ANCHORS_POD_READ_WRITE_MUTEX.Unlock()
 		if err != nil {
-			POD_MUTEX.Lock()
+			ANCHORS_POD_ACCESS_MUTEX.Lock()
 			_ = c.Close()
-			POD_CONNECTION = nil
-			POD_MUTEX.Unlock()
+			ANCHORS_POD_CONNECTION = nil
+			ANCHORS_POD_ACCESS_MUTEX.Unlock()
 			time.Sleep(RETRY_INTERVAL)
 			continue
 		}
@@ -78,11 +81,11 @@ func SendBlockAndAfpToAnchorsPoD(block block_pack.Block, afp *structures.Aggrega
 
 	req := WsAnchorBlockWithAfpStoreRequest{Route: "accept_anchor_block_with_afp", Block: block, Afp: *afp}
 	if reqBytes, err := json.Marshal(req); err == nil {
-		_, _ = SendWebsocketMessageToPoD(reqBytes)
+		_, _ = SendWebsocketMessageToAnchorsPoD(reqBytes)
 	}
 }
 
-func openWebsocketConnectionWithPoD() (*websocket.Conn, error) {
+func openWebsocketConnectionWithAnchorsPoD() (*websocket.Conn, error) {
 	u, err := url.Parse(globals.CONFIGURATION.PointOfDistributionWS)
 	if err != nil {
 		return nil, fmt.Errorf("invalid url: %w", err)
