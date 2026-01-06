@@ -62,6 +62,9 @@ func RunAnchorsChains() {
 	// ✅ 5.Collect anchor rotation proofs from quorum
 	go threads.AnchorRotationCollectorThread()
 
+	// ✅ 6.Keep re-broadcasting stored AARPs until they are observed in receiver anchors blocks (AARP_PRESENCE)
+	go threads.AarpDeliveryThread()
+
 	//___________________ RUN SERVERS - WEBSOCKET AND HTTP __________________
 
 	// Set the atomic flag to true

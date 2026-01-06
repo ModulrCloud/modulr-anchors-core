@@ -255,6 +255,9 @@ func processAnchorRotationProofsAsync(block block_pack.Block, epochHandler *stru
 			if err := utils.VerifyAggregatedAnchorRotationProof(&proof, epochHandler); err != nil {
 				continue
 			}
+			// Trigger #2: if we observed a valid AARP targeting this anchor in any block,
+			// stop sending any proofs to that receiver anchor.
+			utils.MarkAnchorDisabledByAarp(proof.EpochIndex, proof.Anchor)
 			if err := utils.StoreAggregatedAnchorRotationProofPresence(proof.EpochIndex, block.Creator, proof.Anchor, blockId); err != nil {
 				continue
 			}

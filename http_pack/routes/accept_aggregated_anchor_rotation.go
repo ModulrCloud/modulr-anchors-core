@@ -89,6 +89,10 @@ func storeAggregatedRotationProofFromRequest(proof structures.AggregatedAnchorRo
 		return fmt.Errorf("store rotation proof: %w", err)
 	}
 
+	// Trigger #2: if we observed a valid AARP targeting this anchor, stop sending any proofs to it.
+	// (This is used by the AARP delivery thread to avoid sending to anchors under rotation.)
+	utils.MarkAnchorDisabledByAarp(proof.EpochIndex, proof.Anchor)
+
 	globals.MEMPOOL.AddAggregatedAnchorRotationProof(proof)
 
 	return nil
