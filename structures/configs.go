@@ -9,4 +9,5 @@ type NodeLevelConfig struct {
 	WebSocketInterface    string            `json:"WEBSOCKET_INTERFACE"`
 	WebSocketPort         int               `json:"WEBSOCKET_PORT"`
 	PointOfDistributionWS string            `json:"POINT_OF_DISTRIBUTION"`
+	DisablePoDOutbox      bool              `json:"DISABLE_POD_OUTBOX"`
 }

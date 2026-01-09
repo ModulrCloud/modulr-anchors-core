@@ -65,6 +65,11 @@ func RunAnchorsChains() {
 	// ✅ 6.Keep re-broadcasting stored AARPs until they are observed in receiver anchors blocks (AARP_PRESENCE)
 	go threads.AarpDeliveryThread()
 
+	// ✅ 7.Anchors PoD outbox: retry store messages to Anchors PoD until acknowledged (optional)
+	if !globals.CONFIGURATION.DisablePoDOutbox {
+		go threads.AnchorsPoDOutboxThread()
+	}
+
 	//___________________ RUN SERVERS - WEBSOCKET AND HTTP __________________
 
 	// Set the atomic flag to true
