@@ -64,6 +64,17 @@ func (h *Handler) OnMessage(connection *gws.Conn, message *gws.Message) {
 
 		GetBlockWithAggregatedFinalizationProof(req, connection)
 
+	case "get_voting_stat":
+
+		var req WsVotingStatRequest
+
+		if err := json.Unmarshal(message.Bytes(), &req); err != nil {
+			connection.WriteMessage(gws.OpcodeText, []byte(`{"error":"invalid_voting_stat_request"}`))
+			return
+		}
+
+		GetVotingStat(req, connection)
+
 	default:
 		connection.WriteMessage(gws.OpcodeText, []byte(`{"error":"unknown_type"}`))
 
