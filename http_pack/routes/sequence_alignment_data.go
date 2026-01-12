@@ -2,6 +2,7 @@ package routes
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -14,6 +15,8 @@ import (
 	ldbErrors "github.com/syndtr/goleveldb/leveldb/errors"
 	"github.com/valyala/fasthttp"
 )
+
+var errAnchorIndexOutOfRange = errors.New("anchorIndex out of range")
 
 func GetSequenceAlignmentData(ctx *fasthttp.RequestCtx) {
 
@@ -58,13 +61,44 @@ func GetSequenceAlignmentData(ctx *fasthttp.RequestCtx) {
 	anchors := handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandler().AnchorsRegistry
 	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
 
-	if anchorIndex >= len(anchors)-1 {
+	if anchorIndex >= len(anchors) {
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
 		ctx.Write([]byte(`{"err":"anchorIndex out of range"}`))
 		return
 	}
 
-	anchorIndexLookup := make(map[string]int)
+	resp, err := computeSequenceAlignmentData(epochIndex, anchorIndex, anchors)
+	if err != nil {
+		if errors.Is(err, errAnchorIndexOutOfRange) {
+			ctx.SetStatusCode(fasthttp.StatusBadRequest)
+			ctx.Write([]byte(`{"err":"anchorIndex out of range"}`))
+			return
+		}
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.Write([]byte(fmt.Sprintf(`{"err":"%s"}`, err.Error())))
+		return
+	}
+	if resp == nil {
+		ctx.SetStatusCode(fasthttp.StatusNotFound)
+		ctx.Write([]byte(`{"err":"alignment data not found"}`))
+		return
+	}
+
+	payload, _ := json.Marshal(resp)
+	ctx.SetStatusCode(fasthttp.StatusOK)
+	ctx.Write(payload)
+}
+
+func computeSequenceAlignmentData(epochIndex int, anchorIndex int, anchors []string) (*structures.SequenceAlignmentDataResponse, error) {
+	if epochIndex < 0 || anchorIndex < 0 || anchorIndex >= len(anchors) {
+		return nil, errAnchorIndexOutOfRange
+	}
+	// If we're already at the last anchor, there is no "next" anchor to find.
+	if anchorIndex == len(anchors)-1 {
+		return nil, nil
+	}
+
+	anchorIndexLookup := make(map[string]int, len(anchors))
 	for idx, anchor := range anchors {
 		anchorIndexLookup[anchor] = idx
 	}
@@ -86,9 +120,7 @@ func GetSequenceAlignmentData(ctx *fasthttp.RequestCtx) {
 		for _, rotatedAnchor := range requiredAnchors {
 			blockID, err := utils.LoadAggregatedAnchorRotationProofPresence(epochIndex, creator, rotatedAnchor)
 			if err != nil {
-				ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-				ctx.Write([]byte(fmt.Sprintf(`{"err":"failed to read AARP presence: %s"}`, err.Error())))
-				return
+				return nil, fmt.Errorf("failed to read AARP presence: %w", err)
 			}
 			if blockID == "" {
 				allFound = false
@@ -103,9 +135,7 @@ func GetSequenceAlignmentData(ctx *fasthttp.RequestCtx) {
 
 			proof, err := utils.LoadAggregatedAnchorRotationProof(epochIndex, rotatedAnchor)
 			if err != nil {
-				ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-				ctx.Write([]byte(fmt.Sprintf(`{"err":"failed to load AARP: %s"}`, err.Error())))
-				return
+				return nil, fmt.Errorf("failed to load AARP: %w", err)
 			}
 			if proof.Anchor == "" {
 				allFound = false
@@ -140,9 +170,7 @@ func GetSequenceAlignmentData(ctx *fasthttp.RequestCtx) {
 	}
 
 	if foundAnchorIndex == -1 {
-		ctx.SetStatusCode(fasthttp.StatusNotFound)
-		ctx.Write([]byte(`{"err":"alignment data not found"}`))
-		return
+		return nil, nil
 	}
 
 	response := structures.SequenceAlignmentDataResponse{
@@ -154,9 +182,7 @@ func GetSequenceAlignmentData(ctx *fasthttp.RequestCtx) {
 		response.Afp = afp
 	}
 
-	payload, _ := json.Marshal(response)
-	ctx.SetStatusCode(fasthttp.StatusOK)
-	ctx.Write(payload)
+	return &response, nil
 }
 
 func parseBlockIndex(blockID string) (int, error) {
