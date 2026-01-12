@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -81,7 +82,12 @@ func SendBlockAndAfpToAnchorsPoD(block block_pack.Block, afp *structures.Aggrega
 
 	req := WsAnchorBlockWithAfpStoreRequest{Route: "accept_anchor_block_with_afp", Block: block, Afp: *afp}
 	if reqBytes, err := json.Marshal(req); err == nil {
-		_, _ = SendWebsocketMessageToAnchorsPoD(reqBytes)
+		id := "ANCHOR_BLOCK:" + block.Epoch + ":" + block.Creator + ":" + strconv.Itoa(block.Index)
+		if globals.CONFIGURATION.DisablePoDOutbox {
+			_, _ = SendWebsocketMessageToAnchorsPoD(reqBytes)
+			return
+		}
+		_ = SendToAnchorsPoDWithOutbox(id, reqBytes)
 	}
 }
 

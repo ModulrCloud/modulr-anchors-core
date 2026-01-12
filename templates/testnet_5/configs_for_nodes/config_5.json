@@ -6,6 +6,8 @@
     "hello": "world"
   },
 
+  "DISABLE_POD_OUTBOX": true,
+
   "INTERFACE": "0.0.0.0",
   "PORT": 7336,
 
