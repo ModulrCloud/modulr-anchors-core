@@ -37,7 +37,7 @@ type FinalizationRuntime struct {
 	ProofsCache  map[string]string
 	BlockToShare *block_pack.Block
 	Connections  map[string]*websocket.Conn
-	ConnMu       sync.RWMutex
+	Guards       *utils.WebsocketGuards
 	Waiter       *utils.QuorumWaiter
 }
 
@@ -141,7 +141,7 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 
-		responses, ok := runtime.Waiter.SendAndWait(ctx, messageJsoned, epochHandler.Quorum, runtime.Connections, &runtime.ConnMu, majority)
+		responses, ok := runtime.Waiter.SendAndWait(ctx, messageJsoned, epochHandler.Quorum, runtime.Connections, majority)
 		if !ok {
 			return false
 		}
@@ -298,8 +298,9 @@ func ensureFinalizationRuntime(epochHandler *structures.EpochDataHandler) *Final
 		json.Unmarshal(rawGrabber, &grabber)
 	}
 	runtime.Grabber = grabber
-	utils.OpenWebsocketConnectionsWithQuorum(epochHandler.Quorum, runtime.Connections, &runtime.ConnMu)
-	runtime.Waiter = utils.NewQuorumWaiter(len(epochHandler.Quorum))
+	runtime.Guards = utils.NewWebsocketGuards()
+	utils.OpenWebsocketConnectionsWithQuorum(epochHandler.Quorum, runtime.Connections, runtime.Guards)
+	runtime.Waiter = utils.NewQuorumWaiter(len(epochHandler.Quorum), runtime.Guards)
 	FINALIZATION_RUNTIMES.Data[epochHandler.Id] = runtime
 	return runtime
 }
@@ -308,8 +309,21 @@ func removeFinalizationRuntime(epochId int) {
 	FINALIZATION_RUNTIMES.Lock()
 	defer FINALIZATION_RUNTIMES.Unlock()
 	if runtime, ok := FINALIZATION_RUNTIMES.Data[epochId]; ok {
-		for _, conn := range runtime.Connections {
-			conn.Close()
+		if runtime.Guards != nil && runtime.Guards.ConnMu != nil {
+			runtime.Guards.ConnMu.Lock()
+			for _, conn := range runtime.Connections {
+				if conn != nil {
+					_ = conn.Close()
+					runtime.Guards.WriteMu.Delete(conn)
+				}
+			}
+			runtime.Guards.ConnMu.Unlock()
+		} else {
+			for _, conn := range runtime.Connections {
+				if conn != nil {
+					_ = conn.Close()
+				}
+			}
 		}
 		delete(FINALIZATION_RUNTIMES.Data, epochId)
 	}

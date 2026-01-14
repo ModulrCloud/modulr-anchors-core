@@ -163,16 +163,17 @@ func tryPullVotingStatFromQuorum(epochHandler *structures.EpochDataHandler, crea
 	}
 
 	connections := make(map[string]*websocket.Conn)
-	var connMu sync.RWMutex
-	utils.OpenWebsocketConnectionsWithQuorum(peers, connections, &connMu)
+	guards := utils.NewWebsocketGuards()
+	utils.OpenWebsocketConnectionsWithQuorum(peers, connections, guards)
 	defer func() {
-		connMu.Lock()
+		guards.ConnMu.Lock()
 		for _, c := range connections {
 			if c != nil {
 				_ = c.Close()
+				guards.WriteMu.Delete(c)
 			}
 		}
-		connMu.Unlock()
+		guards.ConnMu.Unlock()
 	}()
 
 	needed := len(peers)
@@ -183,11 +184,11 @@ func tryPullVotingStatFromQuorum(epochHandler *structures.EpochDataHandler, crea
 		needed = 1
 	}
 
-	waiter := utils.NewQuorumWaiter(len(peers))
+	waiter := utils.NewQuorumWaiter(len(peers), guards)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	responses, ok := waiter.SendAndWait(ctx, msg, peers, connections, &connMu, needed)
+	responses, ok := waiter.SendAndWait(ctx, msg, peers, connections, needed)
 	if !ok || len(responses) == 0 {
 		return false, current
 	}
