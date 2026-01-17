@@ -11,6 +11,7 @@ import (
 	"github.com/modulrcloud/modulr-anchors-core/block_pack"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
+	"github.com/modulrcloud/modulr-anchors-core/utils"
 
 	"github.com/gorilla/websocket"
 )
@@ -33,6 +34,12 @@ func SendWebsocketMessageToAnchorsPoD(msg []byte) ([]byte, error) {
 		if ANCHORS_POD_CONNECTION == nil {
 			conn, err := openWebsocketConnectionWithAnchorsPoD()
 			if err != nil {
+				utils.LogWithTimeThrottled(
+					"anchors_core:pod_dial_error",
+					2*time.Second,
+					fmt.Sprintf("ANCHORS-CORE: can't connect to Anchors-PoD (attempt %d/%d): %v", attempt, MAX_RETRIES, err),
+					utils.YELLOW_COLOR,
+				)
 				ANCHORS_POD_ACCESS_MUTEX.Unlock()
 				time.Sleep(RETRY_INTERVAL)
 				continue
@@ -48,6 +55,12 @@ func SendWebsocketMessageToAnchorsPoD(msg []byte) ([]byte, error) {
 		_ = c.SetWriteDeadline(time.Now().Add(READ_WRITE_DEADLINE))
 		err := c.WriteMessage(websocket.TextMessage, msg)
 		if err != nil {
+			utils.LogWithTimeThrottled(
+				"anchors_core:pod_write_error",
+				2*time.Second,
+				fmt.Sprintf("ANCHORS-CORE: Anchors-PoD write failed (attempt %d/%d): %v", attempt, MAX_RETRIES, err),
+				utils.YELLOW_COLOR,
+			)
 			ANCHORS_POD_READ_WRITE_MUTEX.Unlock()
 			ANCHORS_POD_ACCESS_MUTEX.Lock()
 			_ = c.Close()
@@ -61,6 +74,12 @@ func SendWebsocketMessageToAnchorsPoD(msg []byte) ([]byte, error) {
 		_, resp, err := c.ReadMessage()
 		ANCHORS_POD_READ_WRITE_MUTEX.Unlock()
 		if err != nil {
+			utils.LogWithTimeThrottled(
+				"anchors_core:pod_read_error",
+				2*time.Second,
+				fmt.Sprintf("ANCHORS-CORE: Anchors-PoD read failed (attempt %d/%d): %v", attempt, MAX_RETRIES, err),
+				utils.YELLOW_COLOR,
+			)
 			ANCHORS_POD_ACCESS_MUTEX.Lock()
 			_ = c.Close()
 			ANCHORS_POD_CONNECTION = nil
@@ -72,6 +91,12 @@ func SendWebsocketMessageToAnchorsPoD(msg []byte) ([]byte, error) {
 		return resp, nil
 	}
 
+	utils.LogWithTimeThrottled(
+		"anchors_core:pod_send_failed",
+		2*time.Second,
+		fmt.Sprintf("ANCHORS-CORE: failed to send message to Anchors-PoD after %d attempts", MAX_RETRIES),
+		utils.RED_COLOR,
+	)
 	return nil, fmt.Errorf("failed to send message to pod after %d attempts", MAX_RETRIES)
 }
 
