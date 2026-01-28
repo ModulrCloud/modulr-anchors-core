@@ -141,28 +141,36 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 
-		responses, ok := runtime.Waiter.SendAndWait(ctx, messageJsoned, epochHandler.Quorum, runtime.Connections, majority)
-		if !ok {
-			return false
-		}
-
-		for _, raw := range responses {
+		// Validation function for finalization proofs
+		validateProof := func(id string, raw []byte) bool {
 			var parsedFinalizationProof websocket_pack.WsFinalizationProofResponse
 			if err := json.Unmarshal(raw, &parsedFinalizationProof); err != nil {
-				continue
-			}
-			if parsedFinalizationProof.VotedForHash != blockHash {
-				continue
+				return false
 			}
 
+			// Verify hash matches
+			if parsedFinalizationProof.VotedForHash != blockHash {
+				return false
+			}
+
+			// Verify voter is in quorum and signature is valid
 			dataThatShouldBeSigned := strings.Join(
 				[]string{acceptedHash, blockIdForHunting, blockHash, epochIndexStr}, ":",
 			)
 
-			finalizationProofIsOk := slices.Contains(epochHandler.Quorum, parsedFinalizationProof.Voter) &&
+			return slices.Contains(epochHandler.Quorum, parsedFinalizationProof.Voter) &&
 				cryptography.VerifySignature(dataThatShouldBeSigned, parsedFinalizationProof.Voter, parsedFinalizationProof.FinalizationProof)
+		}
 
-			if finalizationProofIsOk {
+		responses, ok := runtime.Waiter.SendAndWaitValidated(ctx, messageJsoned, epochHandler.Quorum, runtime.Connections, majority, validateProof)
+		if !ok {
+			return false
+		}
+
+		// All responses are already validated, just extract proofs
+		for _, raw := range responses {
+			var parsedFinalizationProof websocket_pack.WsFinalizationProofResponse
+			if err := json.Unmarshal(raw, &parsedFinalizationProof); err == nil {
 				localProofs[parsedFinalizationProof.Voter] = parsedFinalizationProof.FinalizationProof
 			}
 		}
