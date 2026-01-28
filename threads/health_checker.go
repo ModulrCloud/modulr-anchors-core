@@ -1,6 +1,8 @@
 package threads
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -11,6 +13,9 @@ import (
 	"github.com/modulrcloud/modulr-anchors-core/handlers"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
 	"github.com/modulrcloud/modulr-anchors-core/utils"
+	"github.com/modulrcloud/modulr-anchors-core/websocket_pack"
+
+	"github.com/gorilla/websocket"
 )
 
 type AnchorHealthSnapshot struct {
@@ -69,7 +74,7 @@ func checkAnchorHealth() {
 				continue
 			}
 
-			if evaluateAnchorProgress(epochHandler.Id, creator, votingStat) {
+			if evaluateAnchorProgressWithPull(&epochHandler, creator, votingStat) {
 				stalledCreators++
 			}
 		}
@@ -88,7 +93,9 @@ func checkAnchorHealth() {
 	)
 }
 
-func evaluateAnchorProgress(epochID int, creator string, current structures.VotingStat) bool {
+func evaluateAnchorProgressWithPull(epochHandler *structures.EpochDataHandler, creator string, current structures.VotingStat) bool {
+
+	epochID := epochHandler.Id
 
 	key := snapshotKey(epochID, creator)
 
@@ -102,6 +109,11 @@ func evaluateAnchorProgress(epochID int, creator string, current structures.Voti
 	}
 
 	if previous.Index == current.Index && previous.Hash == current.Hash {
+		if updated, newStat := tryPullVotingStatFromQuorum(epochHandler, creator, current); updated {
+			storeSnapshot(epochID, creator, newStat)
+			return false
+		}
+
 		if err := utils.DisableFinalizationProofsForCreator(epochID, creator); err != nil {
 			utils.LogWithTime(
 				fmt.Sprintf("Health checker: failed to disable proofs for %s in epoch %d: %v", creator, epochID, err),
@@ -128,6 +140,109 @@ func storeSnapshot(epochID int, creator string, stat structures.VotingStat) {
 	HEALTH_SNAPSHOTS_PER_ANCHOR.Lock()
 	HEALTH_SNAPSHOTS_PER_ANCHOR.data[key] = AnchorHealthSnapshot{Index: stat.Index, Hash: stat.Hash}
 	HEALTH_SNAPSHOTS_PER_ANCHOR.Unlock()
+}
+
+func tryPullVotingStatFromQuorum(epochHandler *structures.EpochDataHandler, creator string, current structures.VotingStat) (bool, structures.VotingStat) {
+
+	peers := epochHandler.Quorum
+	if len(peers) == 0 {
+		peers = epochHandler.AnchorsRegistry
+	}
+	if len(peers) == 0 {
+		return false, current
+	}
+
+	req := websocket_pack.WsVotingStatRequest{
+		Route:      "get_voting_stat",
+		EpochIndex: epochHandler.Id,
+		Creator:    creator,
+	}
+	msg, err := json.Marshal(req)
+	if err != nil {
+		return false, current
+	}
+
+	connections := make(map[string]*websocket.Conn)
+	guards := utils.NewWebsocketGuards()
+	utils.OpenWebsocketConnectionsWithQuorum(peers, connections, guards)
+	defer func() {
+		guards.ConnMu.Lock()
+		for _, c := range connections {
+			if c != nil {
+				_ = c.Close()
+				guards.WriteMu.Delete(c)
+			}
+		}
+		guards.ConnMu.Unlock()
+	}()
+
+	needed := len(peers)
+	if needed > 3 {
+		needed = 3
+	}
+	if needed <= 0 {
+		needed = 1
+	}
+
+	waiter := utils.NewQuorumWaiter(len(peers), guards)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	responses, ok := waiter.SendAndWait(ctx, msg, peers, connections, needed)
+	if !ok || len(responses) == 0 {
+		return false, current
+	}
+
+	best := current
+	found := false
+	for _, raw := range responses {
+		var resp websocket_pack.WsVotingStatResponse
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			continue
+		}
+		if resp.Status != "OK" || resp.EpochIndex != epochHandler.Id || resp.Creator != creator {
+			continue
+		}
+		candidate := resp.VotingStat
+		if candidate.Index <= best.Index {
+			continue
+		}
+		// Validate candidate (protect against bad/malicious data).
+		if candidate.Afp.BlockId != "" && candidate.Hash == candidate.Afp.BlockHash && utils.VerifyAggregatedFinalizationProof(&candidate.Afp, epochHandler) {
+			best = candidate
+			found = true
+		}
+	}
+
+	if !found || best.Index <= current.Index {
+		return false, current
+	}
+
+	// Protect against races with other writers (e.g. GetFinalizationProof / rotation collector):
+	// - serialize updates per (epoch, creator)
+	// - re-read latest and only upgrade (never downgrade)
+	mutex := globals.BLOCK_CREATORS_MUTEX_REGISTRY.GetMutex(epochHandler.Id, creator)
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	latest, err := utils.ReadVotingStat(epochHandler.Id, creator)
+	if err != nil {
+		return false, current
+	}
+	if best.Index <= latest.Index {
+		return false, latest
+	}
+
+	if err := utils.StoreVotingStat(epochHandler.Id, creator, best); err != nil {
+		return false, current
+	}
+
+	utils.LogWithTime(
+		fmt.Sprintf("Health checker: pulled fresher voting stat for %s in epoch %d (index %d -> %d)", creator, epochHandler.Id, latest.Index, best.Index),
+		utils.CYAN_COLOR,
+	)
+
+	return true, best
 }
 
 func snapshotKey(epochID int, creator string) string {

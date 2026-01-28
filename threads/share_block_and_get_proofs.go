@@ -37,7 +37,7 @@ type FinalizationRuntime struct {
 	ProofsCache  map[string]string
 	BlockToShare *block_pack.Block
 	Connections  map[string]*websocket.Conn
-	ConnMu       sync.RWMutex
+	Guards       *utils.WebsocketGuards
 	Waiter       *utils.QuorumWaiter
 }
 
@@ -141,7 +141,7 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 
-		responses, ok := runtime.Waiter.SendAndWait(ctx, messageJsoned, epochHandler.Quorum, runtime.Connections, &runtime.ConnMu, majority)
+		responses, ok := runtime.Waiter.SendAndWait(ctx, messageJsoned, epochHandler.Quorum, runtime.Connections, majority)
 		if !ok {
 			return false
 		}
@@ -191,6 +191,13 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 		return false
 	}
 
+	// At this point, having AFP for block (acceptedIndex+1) means block at acceptedIndex is now approved.
+	// Mark AARP_PRESENCE for any AARPs included in the approved block (async, non-blocking).
+	if acceptedIndex >= 0 {
+		approvedBlockId := strconv.Itoa(epochHandler.Id) + ":" + globals.CONFIGURATION.PublicKey + ":" + strconv.Itoa(acceptedIndex)
+		go markAarpPresenceFromApprovedBlock(epochHandler.Id, globals.CONFIGURATION.PublicKey, approvedBlockId)
+	}
+
 	// Advance grabber state under lock, take a snapshot to persist, then release lock.
 	runtime.Lock()
 	runtime.Grabber.AfpForPrevious = aggregatedFinalizationProof
@@ -232,6 +239,42 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 	return true
 }
 
+// markAarpPresenceFromApprovedBlock scans an already-approved local anchor block and stores
+// AARP_PRESENCE(epoch, blockCreator=self, rotatedAnchor=X) = blockId for each valid AARP found.
+// This enables receivers to later prove inclusion back to senders (receipt), even if senders
+// never observe receiver blocks via the finalization request flow.
+func markAarpPresenceFromApprovedBlock(epochId int, blockCreator string, blockId string) {
+	if epochId < 0 || blockCreator == "" || blockId == "" {
+		return
+	}
+
+	epochHandler := utils.GetEpochHandlerByID(epochId)
+	if epochHandler == nil {
+		return
+	}
+
+	raw, err := databases.BLOCKS.Get([]byte(blockId), nil)
+	if err != nil || len(raw) == 0 {
+		return
+	}
+
+	var block block_pack.Block
+	if json.Unmarshal(raw, &block) != nil {
+		return
+	}
+	// Defensive sanity checks
+	if block.Creator != blockCreator || !block.VerifySignature() {
+		return
+	}
+
+	for _, proof := range block.ExtraData.AggregatedAnchorRotationProofs {
+		if err := utils.VerifyAggregatedAnchorRotationProof(&proof, epochHandler); err != nil {
+			continue
+		}
+		_ = utils.StoreAggregatedAnchorRotationProofPresence(epochId, blockCreator, proof.Anchor, blockId)
+	}
+}
+
 func ensureFinalizationRuntime(epochHandler *structures.EpochDataHandler) *FinalizationRuntime {
 	FINALIZATION_RUNTIMES.RLock()
 	if runtime, ok := FINALIZATION_RUNTIMES.Data[epochHandler.Id]; ok {
@@ -255,8 +298,9 @@ func ensureFinalizationRuntime(epochHandler *structures.EpochDataHandler) *Final
 		json.Unmarshal(rawGrabber, &grabber)
 	}
 	runtime.Grabber = grabber
-	utils.OpenWebsocketConnectionsWithQuorum(epochHandler.Quorum, runtime.Connections, &runtime.ConnMu)
-	runtime.Waiter = utils.NewQuorumWaiter(len(epochHandler.Quorum))
+	runtime.Guards = utils.NewWebsocketGuards()
+	utils.OpenWebsocketConnectionsWithQuorum(epochHandler.Quorum, runtime.Connections, runtime.Guards)
+	runtime.Waiter = utils.NewQuorumWaiter(len(epochHandler.Quorum), runtime.Guards)
 	FINALIZATION_RUNTIMES.Data[epochHandler.Id] = runtime
 	return runtime
 }
@@ -265,8 +309,21 @@ func removeFinalizationRuntime(epochId int) {
 	FINALIZATION_RUNTIMES.Lock()
 	defer FINALIZATION_RUNTIMES.Unlock()
 	if runtime, ok := FINALIZATION_RUNTIMES.Data[epochId]; ok {
-		for _, conn := range runtime.Connections {
-			conn.Close()
+		if runtime.Guards != nil && runtime.Guards.ConnMu != nil {
+			runtime.Guards.ConnMu.Lock()
+			for _, conn := range runtime.Connections {
+				if conn != nil {
+					_ = conn.Close()
+					runtime.Guards.WriteMu.Delete(conn)
+				}
+			}
+			runtime.Guards.ConnMu.Unlock()
+		} else {
+			for _, conn := range runtime.Connections {
+				if conn != nil {
+					_ = conn.Close()
+				}
+			}
 		}
 		delete(FINALIZATION_RUNTIMES.Data, epochId)
 	}

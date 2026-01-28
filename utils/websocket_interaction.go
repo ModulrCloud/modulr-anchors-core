@@ -12,6 +12,20 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type WebsocketGuards struct {
+	ConnMu *sync.RWMutex
+	// WriteMu keys are *websocket.Conn and values are *sync.Mutex.
+	// This guarantees a single writer per actual websocket connection, regardless of id/pubkey mapping.
+	WriteMu *sync.Map
+}
+
+func NewWebsocketGuards() *WebsocketGuards {
+	return &WebsocketGuards{
+		ConnMu:  &sync.RWMutex{},
+		WriteMu: &sync.Map{},
+	}
+}
+
 type QuorumWaiter struct {
 	responseCh chan QuorumResponse
 	done       chan struct{}
@@ -21,7 +35,7 @@ type QuorumWaiter struct {
 	mu         sync.Mutex
 	buf        []string
 	failed     map[string]struct{}
-	ioMu       sync.Map // key: pubkey -> *sync.Mutex (per-waiter, serializes write+read)
+	guards     *WebsocketGuards
 }
 
 type QuorumResponse struct {
@@ -29,16 +43,17 @@ type QuorumResponse struct {
 	msg []byte
 }
 
-func OpenWebsocketConnectionsWithQuorum(quorum []string, wsConnMap map[string]*websocket.Conn, wsConnMu *sync.RWMutex) {
+func OpenWebsocketConnectionsWithQuorum(quorum []string, wsConnMap map[string]*websocket.Conn, guards *WebsocketGuards) {
 	// Close and remove any existing connections
-	wsConnMu.Lock()
+	guards.ConnMu.Lock()
 	for id, conn := range wsConnMap {
 		if conn != nil {
 			_ = conn.Close()
+			guards.WriteMu.Delete(conn)
 		}
 		delete(wsConnMap, id)
 	}
-	wsConnMu.Unlock()
+	guards.ConnMu.Unlock()
 
 	// Establish new connections for each anchor in the quorum
 	for _, anchorPubkey := range quorum {
@@ -66,13 +81,13 @@ func OpenWebsocketConnectionsWithQuorum(quorum []string, wsConnMap map[string]*w
 		}
 
 		// Store in the shared map under lock
-		wsConnMu.Lock()
+		guards.ConnMu.Lock()
 		wsConnMap[anchorPubkey] = conn
-		wsConnMu.Unlock()
+		guards.ConnMu.Unlock()
 	}
 }
 
-func NewQuorumWaiter(maxQuorumSize int) *QuorumWaiter {
+func NewQuorumWaiter(maxQuorumSize int, guards *WebsocketGuards) *QuorumWaiter {
 	return &QuorumWaiter{
 		responseCh: make(chan QuorumResponse, maxQuorumSize),
 		done:       make(chan struct{}),
@@ -81,12 +96,13 @@ func NewQuorumWaiter(maxQuorumSize int) *QuorumWaiter {
 		timer:      time.NewTimer(0),
 		buf:        make([]string, 0, maxQuorumSize),
 		failed:     make(map[string]struct{}),
+		guards:     guards,
 	}
 }
 
 func (qw *QuorumWaiter) SendAndWait(
 	ctx context.Context, message []byte, quorum []string,
-	wsConnMap map[string]*websocket.Conn, wsConnMu *sync.RWMutex, majority int,
+	wsConnMap map[string]*websocket.Conn, majority int,
 ) (map[string][]byte, bool) {
 
 	// Reset state
@@ -114,7 +130,7 @@ func (qw *QuorumWaiter) SendAndWait(
 	qw.done = make(chan struct{})
 
 	// First send to the whole quorum
-	qw.sendMessages(quorum, message, wsConnMap, wsConnMu)
+	qw.sendMessages(quorum, message, wsConnMap)
 
 	for {
 		select {
@@ -138,7 +154,7 @@ func (qw *QuorumWaiter) SendAndWait(
 				qw.mu.Unlock()
 
 				// one-shot reconnect of failed nodes
-				qw.reconnectFailed(wsConnMap, wsConnMu)
+				qw.reconnectFailed(wsConnMap)
 				return out, true
 			}
 
@@ -154,29 +170,32 @@ func (qw *QuorumWaiter) SendAndWait(
 			qw.mu.Unlock()
 
 			if len(qw.buf) == 0 {
-				qw.reconnectFailed(wsConnMap, wsConnMu)
+				qw.reconnectFailed(wsConnMap)
 				return nil, false
 			}
 			qw.timer.Reset(time.Second)
-			qw.sendMessages(qw.buf, message, wsConnMap, wsConnMu)
+			qw.sendMessages(qw.buf, message, wsConnMap)
 
 		case <-ctx.Done():
-			qw.reconnectFailed(wsConnMap, wsConnMu)
+			qw.reconnectFailed(wsConnMap)
 			return nil, false
 		}
 	}
 }
 
-func (qw *QuorumWaiter) getIOMu(id string) *sync.Mutex {
-	if m, ok := qw.ioMu.Load(id); ok {
+func (qw *QuorumWaiter) getWriteMuConn(c *websocket.Conn) *sync.Mutex {
+	if c == nil {
+		return &sync.Mutex{}
+	}
+	if m, ok := qw.guards.WriteMu.Load(c); ok {
 		return m.(*sync.Mutex)
 	}
 	m := &sync.Mutex{}
-	actual, _ := qw.ioMu.LoadOrStore(id, m)
+	actual, _ := qw.guards.WriteMu.LoadOrStore(c, m)
 	return actual.(*sync.Mutex)
 }
 
-func reconnectOnce(pubkey string, wsConnMap map[string]*websocket.Conn, wsConnMu *sync.RWMutex) {
+func reconnectOnce(pubkey string, wsConnMap map[string]*websocket.Conn, guards *WebsocketGuards) {
 
 	// Get anchor metadata
 	raw, err := databases.APPROVEMENT_THREAD_METADATA.Get([]byte(pubkey+"_ANCHOR_STORAGE"), nil)
@@ -195,15 +214,17 @@ func reconnectOnce(pubkey string, wsConnMap map[string]*websocket.Conn, wsConnMu
 	}
 
 	// Store back into the shared map under lock
-	wsConnMu.Lock()
-
+	guards.ConnMu.Lock()
+	if old := wsConnMap[pubkey]; old != nil {
+		_ = old.Close()
+		guards.WriteMu.Delete(old)
+	}
 	wsConnMap[pubkey] = conn
-
-	wsConnMu.Unlock()
+	guards.ConnMu.Unlock()
 
 }
 
-func (qw *QuorumWaiter) reconnectFailed(wsConnMap map[string]*websocket.Conn, wsConnMu *sync.RWMutex) {
+func (qw *QuorumWaiter) reconnectFailed(wsConnMap map[string]*websocket.Conn) {
 	qw.mu.Lock()
 	failedCopy := make([]string, 0, len(qw.failed))
 	for id := range qw.failed {
@@ -216,16 +237,16 @@ func (qw *QuorumWaiter) reconnectFailed(wsConnMap map[string]*websocket.Conn, ws
 	qw.mu.Unlock()
 
 	for _, id := range failedCopy {
-		reconnectOnce(id, wsConnMap, wsConnMu)
+		reconnectOnce(id, wsConnMap, qw.guards)
 	}
 }
 
-func (qw *QuorumWaiter) sendMessages(targets []string, msg []byte, wsConnMap map[string]*websocket.Conn, wsConnMu *sync.RWMutex) {
+func (qw *QuorumWaiter) sendMessages(targets []string, msg []byte, wsConnMap map[string]*websocket.Conn) {
 	for _, id := range targets {
 		// Read connection from the shared map under RLock
-		wsConnMu.RLock()
+		qw.guards.ConnMu.RLock()
 		conn, ok := wsConnMap[id]
-		wsConnMu.RUnlock()
+		qw.guards.ConnMu.RUnlock()
 		if !ok || conn == nil {
 			// Mark as failed so we try to reconnect after the round
 			qw.mu.Lock()
@@ -237,7 +258,7 @@ func (qw *QuorumWaiter) sendMessages(targets []string, msg []byte, wsConnMap map
 		go func(id string, c *websocket.Conn) {
 			// Gorilla websocket requires a single reader and a single writer per connection.
 			// Serialize the whole request/response (write+read) for this conn.
-			iomu := qw.getIOMu(id)
+			iomu := qw.getWriteMuConn(c)
 			iomu.Lock()
 			err := c.WriteMessage(websocket.TextMessage, msg)
 			if err != nil {
@@ -247,10 +268,11 @@ func (qw *QuorumWaiter) sendMessages(targets []string, msg []byte, wsConnMap map
 				qw.failed[id] = struct{}{}
 				qw.mu.Unlock()
 
-				wsConnMu.Lock()
+				qw.guards.ConnMu.Lock()
 				_ = c.Close()
 				delete(wsConnMap, id)
-				wsConnMu.Unlock()
+				qw.guards.ConnMu.Unlock()
+				qw.guards.WriteMu.Delete(c)
 				return
 			}
 
@@ -264,10 +286,11 @@ func (qw *QuorumWaiter) sendMessages(targets []string, msg []byte, wsConnMap map
 				qw.failed[id] = struct{}{}
 				qw.mu.Unlock()
 
-				wsConnMu.Lock()
+				qw.guards.ConnMu.Lock()
 				_ = c.Close()
 				delete(wsConnMap, id)
-				wsConnMu.Unlock()
+				qw.guards.ConnMu.Unlock()
+				qw.guards.WriteMu.Delete(c)
 				return
 			}
 

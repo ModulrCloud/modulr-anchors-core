@@ -244,6 +244,77 @@ func GetBlockWithAggregatedFinalizationProof(parsedRequest WsBlockWithAfpRequest
 
 }
 
+func GetVotingStat(parsedRequest WsVotingStatRequest, connection *gws.Conn) {
+
+	if !globals.FLOOD_PREVENTION_FLAG_FOR_ROUTES.Load() {
+		return
+	}
+
+	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
+	epochHandlers := handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandlers()
+	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
+
+	var epochHandler *structures.EpochDataHandler
+	for idx := range epochHandlers {
+		if epochHandlers[idx].Id == parsedRequest.EpochIndex {
+			epochHandler = &epochHandlers[idx]
+			break
+		}
+	}
+	if epochHandler == nil {
+		resp := WsVotingStatResponse{
+			Status:     "ERROR",
+			EpochIndex: parsedRequest.EpochIndex,
+			Creator:    parsedRequest.Creator,
+			VotingStat: structures.NewVotingStatTemplate(),
+			Error:      "unknown_epoch",
+		}
+		if b, err := json.Marshal(resp); err == nil {
+			connection.WriteMessage(gws.OpcodeText, b)
+		}
+		return
+	}
+
+	if parsedRequest.Creator == "" || !slices.Contains(epochHandler.AnchorsRegistry, parsedRequest.Creator) {
+		resp := WsVotingStatResponse{
+			Status:     "ERROR",
+			EpochIndex: parsedRequest.EpochIndex,
+			Creator:    parsedRequest.Creator,
+			VotingStat: structures.NewVotingStatTemplate(),
+			Error:      "unknown_creator",
+		}
+		if b, err := json.Marshal(resp); err == nil {
+			connection.WriteMessage(gws.OpcodeText, b)
+		}
+		return
+	}
+
+	stat, err := utils.ReadVotingStat(parsedRequest.EpochIndex, parsedRequest.Creator)
+	if err != nil {
+		resp := WsVotingStatResponse{
+			Status:     "ERROR",
+			EpochIndex: parsedRequest.EpochIndex,
+			Creator:    parsedRequest.Creator,
+			VotingStat: structures.NewVotingStatTemplate(),
+			Error:      "read_failed",
+		}
+		if b, mErr := json.Marshal(resp); mErr == nil {
+			connection.WriteMessage(gws.OpcodeText, b)
+		}
+		return
+	}
+
+	resp := WsVotingStatResponse{
+		Status:     "OK",
+		EpochIndex: parsedRequest.EpochIndex,
+		Creator:    parsedRequest.Creator,
+		VotingStat: stat,
+	}
+	if b, err := json.Marshal(resp); err == nil {
+		connection.WriteMessage(gws.OpcodeText, b)
+	}
+}
+
 func processAnchorRotationProofsAsync(block block_pack.Block, epochHandler *structures.EpochDataHandler, blockId string) {
 
 	if len(block.ExtraData.AggregatedAnchorRotationProofs) == 0 || epochHandler == nil {

@@ -32,3 +32,17 @@ type WsAnchorBlockWithAfpStoreRequest struct {
 	Block block_pack.Block                       `json:"block"`
 	Afp   structures.AggregatedFinalizationProof `json:"afp"`
 }
+
+type WsVotingStatRequest struct {
+	Route      string `json:"route"`
+	EpochIndex int    `json:"epochIndex"`
+	Creator    string `json:"creator"`
+}
+
+type WsVotingStatResponse struct {
+	Status     string                `json:"status"`
+	EpochIndex int                   `json:"epochIndex"`
+	Creator    string                `json:"creator"`
+	VotingStat structures.VotingStat `json:"votingStat"`
+	Error      string                `json:"error,omitempty"`
+}

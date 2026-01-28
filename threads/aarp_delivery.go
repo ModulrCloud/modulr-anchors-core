@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/modulrcloud/modulr-anchors-core/block_pack"
 	"github.com/modulrcloud/modulr-anchors-core/databases"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
 	"github.com/modulrcloud/modulr-anchors-core/handlers"
@@ -128,7 +129,62 @@ func deliverAarpsForEpoch(epochHandler *structures.EpochDataHandler, client *htt
 			if err != nil {
 				continue
 			}
+			var parsed structures.AcceptAggregatedAnchorRotationProofResponse
+			if resp.StatusCode == http.StatusOK {
+				// Best-effort: parse inclusion receipts (if receiver supports them).
+				_ = json.NewDecoder(resp.Body).Decode(&parsed)
+			}
 			_ = resp.Body.Close()
+
+			// If we got a valid inclusion receipt from receiver, store presence locally to stop sending.
+			if len(parsed.Receipts) > 0 {
+				for _, r := range parsed.Receipts {
+					if r.Status != "OK" || r.EpochIndex != epochHandler.Id {
+						continue
+					}
+					if !strings.EqualFold(r.ReceiverAnchor, receiverPk) || !strings.EqualFold(r.RotatedAnchor, rotatedAnchor) {
+						continue
+					}
+					if r.BlockId == "" || len(r.Block) == 0 || len(r.Afp) == 0 {
+						continue
+					}
+
+					var block block_pack.Block
+					if json.Unmarshal(r.Block, &block) != nil || !block.VerifySignature() {
+						continue
+					}
+					if !strings.EqualFold(block.Creator, receiverPk) {
+						continue
+					}
+
+					// AFP must validate and prove this block is approved (AFP of next block includes prev hash).
+					var afp structures.AggregatedFinalizationProof
+					if json.Unmarshal(r.Afp, &afp) != nil || !utils.VerifyAggregatedFinalizationProof(&afp, epochHandler) {
+						continue
+					}
+					if afp.PrevBlockHash != block.GetHash() {
+						continue
+					}
+
+					// Ensure the block actually contains the rotatedAnchor AARP (and it is valid).
+					included := false
+					for _, p := range block.ExtraData.AggregatedAnchorRotationProofs {
+						if !strings.EqualFold(p.Anchor, rotatedAnchor) {
+							continue
+						}
+						if err := utils.VerifyAggregatedAnchorRotationProof(&p, epochHandler); err == nil {
+							included = true
+							break
+						}
+					}
+					if !included {
+						continue
+					}
+
+					_ = utils.StoreAggregatedAnchorRotationProofPresence(epochHandler.Id, receiverPk, rotatedAnchor, r.BlockId)
+					break
+				}
+			}
 
 			// We deliberately don't require 200 here: even a temporary failure will be retried on next tick.
 		}
