@@ -87,28 +87,24 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 
 		if parsedRequest.Block.VerifySignature() && !utils.SignalAboutEpochRotationExists(epochIndex) {
 
-			if localVotingDataForLeader.Index == int(parsedRequest.Block.Index) {
-
-				futureVotingDataToStore = localVotingDataForLeader
-
-			} else {
-
-				futureVotingDataToStore = structures.VotingStat{
-
-					Index: previousBlockIndex,
-
-					Hash: parsedRequest.PreviousBlockAfp.BlockHash,
-
-					Afp: parsedRequest.PreviousBlockAfp,
-				}
-
-			}
-
+			isGenesis := parsedRequest.Block.Index == 0
 			previousBlockId := epochIndexStr + ":" + parsedRequest.Block.Creator + ":" + strconv.Itoa(previousBlockIndex)
+			hasValidPrevAfp := previousBlockId == parsedRequest.PreviousBlockAfp.BlockId &&
+				utils.VerifyAggregatedFinalizationProof(&parsedRequest.PreviousBlockAfp, epochHandler)
 
-			// Check if AFP inside related to previous block AFP
-
-			if parsedRequest.Block.Index == 0 || previousBlockId == parsedRequest.PreviousBlockAfp.BlockId && utils.VerifyAggregatedFinalizationProof(&parsedRequest.PreviousBlockAfp, epochHandler) {
+			if isGenesis || hasValidPrevAfp {
+				if localVotingDataForLeader.Index == int(parsedRequest.Block.Index) {
+					futureVotingDataToStore = localVotingDataForLeader
+				} else if isGenesis {
+					// For genesis block there is no previous AFP; use the template (-1, zero hash).
+					futureVotingDataToStore = structures.NewVotingStatTemplate()
+				} else {
+					futureVotingDataToStore = structures.VotingStat{
+						Index: previousBlockIndex,
+						Hash:  parsedRequest.PreviousBlockAfp.BlockHash,
+						Afp:   parsedRequest.PreviousBlockAfp,
+					}
+				}
 
 				// Store the block and return finalization proof
 
@@ -124,53 +120,50 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 
 						processAnchorRotationProofsAsync(parsedRequest.Block, epochHandler, proposedBlockId)
 
-						afpBytes, err := json.Marshal(parsedRequest.PreviousBlockAfp)
-
-						if err == nil {
-
-							// 2. Store the AFP for previous block
-
-							errStoreAfp := databases.EPOCH_DATA.Put([]byte("AFP:"+parsedRequest.PreviousBlockAfp.BlockId), afpBytes, nil)
-
-							if errStoreAfp == nil {
-
-								// 3. Store the voting stats
-
-								if errStoreVotingStats := utils.StoreVotingStat(epochIndex, parsedRequest.Block.Creator, futureVotingDataToStore); errStoreVotingStats == nil {
-
-									// Only after we stored the these 3 components = generate signature (finalization proof)
-
-									dataToSign, prevBlockHash := "", ""
-
-									if parsedRequest.Block.Index == 0 {
-
-										prevBlockHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-
-									} else {
-
-										prevBlockHash = parsedRequest.PreviousBlockAfp.BlockHash
-
-									}
-
-									dataToSign += strings.Join([]string{prevBlockHash, proposedBlockId, proposedBlockHash, epochIndexStr}, ":")
-
-									response := WsFinalizationProofResponse{
-										Voter:             globals.CONFIGURATION.PublicKey,
-										FinalizationProof: cryptography.GenerateSignature(globals.CONFIGURATION.PrivateKey, dataToSign),
-										VotedForHash:      proposedBlockHash,
-									}
-
-									jsonResponse, err := json.Marshal(response)
-
-									if err == nil {
-
-										go SendBlockAndAfpToAnchorsPoD(parsedRequest.Block, &parsedRequest.PreviousBlockAfp)
-
-										connection.WriteMessage(gws.OpcodeText, jsonResponse)
-
-									}
-
+						if !isGenesis {
+							afpBytes, err := json.Marshal(parsedRequest.PreviousBlockAfp)
+							if err == nil {
+								// 2. Store the AFP for previous block
+								errStoreAfp := databases.EPOCH_DATA.Put([]byte("AFP:"+parsedRequest.PreviousBlockAfp.BlockId), afpBytes, nil)
+								if errStoreAfp != nil {
+									return
 								}
+							}
+						}
+
+						// 3. Store the voting stats
+						if errStoreVotingStats := utils.StoreVotingStat(epochIndex, parsedRequest.Block.Creator, futureVotingDataToStore); errStoreVotingStats == nil {
+
+							// Only after we stored the these 3 components = generate signature (finalization proof)
+
+							dataToSign, prevBlockHash := "", ""
+
+							if parsedRequest.Block.Index == 0 {
+
+								prevBlockHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+							} else {
+
+								prevBlockHash = parsedRequest.PreviousBlockAfp.BlockHash
+
+							}
+
+							dataToSign += strings.Join([]string{prevBlockHash, proposedBlockId, proposedBlockHash, epochIndexStr}, ":")
+
+							response := WsFinalizationProofResponse{
+								Voter:             globals.CONFIGURATION.PublicKey,
+								FinalizationProof: cryptography.GenerateSignature(globals.CONFIGURATION.PrivateKey, dataToSign),
+								VotedForHash:      proposedBlockHash,
+							}
+
+							jsonResponse, err := json.Marshal(response)
+
+							if err == nil {
+
+								if !isGenesis {
+									go SendBlockAndAfpToAnchorsPoD(parsedRequest.Block, &parsedRequest.PreviousBlockAfp)
+								}
+								connection.WriteMessage(gws.OpcodeText, jsonResponse)
 
 							}
 
