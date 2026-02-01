@@ -250,17 +250,7 @@ func GetVotingStat(parsedRequest WsVotingStatRequest, connection *gws.Conn) {
 		return
 	}
 
-	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
-	epochHandlers := handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandlers()
-	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
-
-	var epochHandler *structures.EpochDataHandler
-	for idx := range epochHandlers {
-		if epochHandlers[idx].Id == parsedRequest.EpochIndex {
-			epochHandler = &epochHandlers[idx]
-			break
-		}
-	}
+	epochHandler := utils.GetEpochHandlerByID(parsedRequest.EpochIndex)
 	if epochHandler == nil {
 		resp := WsVotingStatResponse{
 			Status:     "ERROR",

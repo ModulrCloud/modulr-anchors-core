@@ -67,3 +67,18 @@ func VerifyAggregatedAnchorRotationProof(proof *structures.AggregatedAnchorRotat
 	}
 	return nil
 }
+
+func HasValidAggregatedAnchorRotationProof(proofs []structures.AggregatedAnchorRotationProof, rotatedAnchor string, epochHandler *structures.EpochDataHandler) bool {
+	if epochHandler == nil || rotatedAnchor == "" {
+		return false
+	}
+	for _, p := range proofs {
+		if !strings.EqualFold(p.Anchor, rotatedAnchor) {
+			continue
+		}
+		if err := VerifyAggregatedAnchorRotationProof(&p, epochHandler); err == nil {
+			return true
+		}
+	}
+	return false
+}

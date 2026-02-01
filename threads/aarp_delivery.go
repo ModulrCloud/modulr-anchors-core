@@ -167,16 +167,7 @@ func deliverAarpsForEpoch(epochHandler *structures.EpochDataHandler, client *htt
 					}
 
 					// Ensure the block actually contains the rotatedAnchor AARP (and it is valid).
-					included := false
-					for _, p := range block.ExtraData.AggregatedAnchorRotationProofs {
-						if !strings.EqualFold(p.Anchor, rotatedAnchor) {
-							continue
-						}
-						if err := utils.VerifyAggregatedAnchorRotationProof(&p, epochHandler); err == nil {
-							included = true
-							break
-						}
-					}
+					included := utils.HasValidAggregatedAnchorRotationProof(block.ExtraData.AggregatedAnchorRotationProofs, rotatedAnchor, epochHandler)
 					if !included {
 						continue
 					}

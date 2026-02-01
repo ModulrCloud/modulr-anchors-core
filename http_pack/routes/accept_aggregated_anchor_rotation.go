@@ -107,17 +107,7 @@ func buildAarpInclusionReceiptIfAvailable(epochIndex int, receiverAnchor string,
 		return structures.AarpInclusionReceipt{}, false
 	}
 
-	found := false
-	for _, p := range block.ExtraData.AggregatedAnchorRotationProofs {
-		if !strings.EqualFold(p.Anchor, rotatedAnchor) {
-			continue
-		}
-		if err := utils.VerifyAggregatedAnchorRotationProof(&p, epochHandler); err == nil {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !utils.HasValidAggregatedAnchorRotationProof(block.ExtraData.AggregatedAnchorRotationProofs, rotatedAnchor, epochHandler) {
 		return structures.AarpInclusionReceipt{}, false
 	}
 
