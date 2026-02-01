@@ -230,6 +230,10 @@ func tryPullVotingStatFromQuorum(epochHandler *structures.EpochDataHandler, crea
 		return false, current
 	}
 	if best.Index <= latest.Index {
+		// Local state already progressed via another writer.
+		if latest.Index > current.Index {
+			return true, latest
+		}
 		return false, latest
 	}
 
