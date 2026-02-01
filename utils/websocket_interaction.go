@@ -100,6 +100,14 @@ func NewQuorumWaiter(maxQuorumSize int, guards *WebsocketGuards) *QuorumWaiter {
 	}
 }
 
+func (qw *QuorumWaiter) closeDoneOnce() {
+	select {
+	case <-qw.done:
+	default:
+		close(qw.done)
+	}
+}
+
 func (qw *QuorumWaiter) SendAndWait(
 	ctx context.Context, message []byte, quorum []string,
 	wsConnMap map[string]*websocket.Conn, majority int,
@@ -144,7 +152,7 @@ func (qw *QuorumWaiter) SendAndWait(
 			qw.mu.Unlock()
 
 			if count >= majority {
-				close(qw.done)
+				qw.closeDoneOnce()
 				// copy responses
 				qw.mu.Lock()
 				out := make(map[string][]byte, len(qw.responses))
@@ -170,6 +178,7 @@ func (qw *QuorumWaiter) SendAndWait(
 			qw.mu.Unlock()
 
 			if len(qw.buf) == 0 {
+				qw.closeDoneOnce()
 				qw.reconnectFailed(wsConnMap)
 				return nil, false
 			}
@@ -177,6 +186,7 @@ func (qw *QuorumWaiter) SendAndWait(
 			qw.sendMessages(qw.buf, message, wsConnMap)
 
 		case <-ctx.Done():
+			qw.closeDoneOnce()
 			qw.reconnectFailed(wsConnMap)
 			return nil, false
 		}
@@ -272,7 +282,7 @@ func (qw *QuorumWaiter) SendAndWaitValidated(
 			validMu.Unlock()
 
 			if validCount >= majority {
-				close(qw.done)
+				qw.closeDoneOnce()
 				// Copy validated responses
 				validMu.Lock()
 				out := make(map[string][]byte, len(validResponses))
@@ -304,7 +314,7 @@ func (qw *QuorumWaiter) SendAndWaitValidated(
 				validMu.Unlock()
 
 				if validCount >= majority {
-					close(qw.done)
+					qw.closeDoneOnce()
 					validMu.Lock()
 					out := make(map[string][]byte, len(validResponses))
 					for k, v := range validResponses {
@@ -315,6 +325,7 @@ func (qw *QuorumWaiter) SendAndWaitValidated(
 					return out, true
 				}
 
+				qw.closeDoneOnce()
 				qw.reconnectFailed(wsConnMap)
 				return nil, false
 			}
@@ -328,7 +339,7 @@ func (qw *QuorumWaiter) SendAndWaitValidated(
 			validMu.Unlock()
 
 			if validCount >= majority {
-				close(qw.done)
+				qw.closeDoneOnce()
 				validMu.Lock()
 				out := make(map[string][]byte, len(validResponses))
 				for k, v := range validResponses {
@@ -339,6 +350,7 @@ func (qw *QuorumWaiter) SendAndWaitValidated(
 				return out, true
 			}
 
+			qw.closeDoneOnce()
 			qw.reconnectFailed(wsConnMap)
 			return nil, false
 		}
