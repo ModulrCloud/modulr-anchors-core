@@ -4,45 +4,21 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/modulrcloud/modulr-anchors-core/block_pack"
-	"github.com/modulrcloud/modulr-anchors-core/databases"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
 	"github.com/modulrcloud/modulr-anchors-core/handlers"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
 	"github.com/modulrcloud/modulr-anchors-core/utils"
-
-	"github.com/syndtr/goleveldb/leveldb/util"
 )
-
-func aarpKeyPrefix(epoch int) []byte {
-	return []byte("AARP:" + strconv.Itoa(epoch) + ":")
-}
 
 func loadAllAarpsForEpoch(epochHandler *structures.EpochDataHandler) []structures.AggregatedAnchorRotationProof {
 	if epochHandler == nil {
 		return nil
 	}
-	prefix := aarpKeyPrefix(epochHandler.Id)
-	it := databases.FINALIZATION_VOTING_STATS.NewIterator(util.BytesPrefix(prefix), nil)
-	defer it.Release()
-
-	out := make([]structures.AggregatedAnchorRotationProof, 0)
-	for it.Next() {
-		var proof structures.AggregatedAnchorRotationProof
-		if err := json.Unmarshal(it.Value(), &proof); err != nil {
-			continue
-		}
-		// Defensive: verify before using.
-		if err := utils.VerifyAggregatedAnchorRotationProof(&proof, epochHandler); err != nil {
-			continue
-		}
-		out = append(out, proof)
-	}
-	return out
+	return utils.GetAggregatedAnchorRotationProofs(epochHandler)
 }
 
 // AarpDeliveryThread periodically re-broadcasts stored AARPs until they are observed in blocks of each receiver anchor.
@@ -51,7 +27,6 @@ func loadAllAarpsForEpoch(epochHandler *structures.EpochDataHandler) []structure
 // - Trigger #1: AARP_PRESENCE(epoch, blockCreator=Y, rotatedAnchor=X) exists
 // - Trigger #2: we have observed any valid AARP targeting Y (so we stop sending anything to Y)
 func AarpDeliveryThread() {
-	client := &http.Client{Timeout: 5 * time.Second}
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
@@ -62,7 +37,7 @@ func AarpDeliveryThread() {
 
 		for idx := range epochHandlers {
 			epochHandler := &epochHandlers[idx]
-			deliverAarpsForEpoch(epochHandler, client)
+			deliverAarpsForEpoch(epochHandler, HTTP_CLIENT)
 		}
 	}
 }
