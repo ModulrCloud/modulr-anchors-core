@@ -93,8 +93,9 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 	runtime.Unlock()
 
 	blockIndexToHunt := strconv.Itoa(acceptedIndex + 1)
-	blockIdForHunting := strconv.Itoa(epochHandler.Id) + ":" + globals.CONFIGURATION.PublicKey + ":" + blockIndexToHunt
-	blockIdThatInPointer := strconv.Itoa(epochHandler.Id) + ":" + globals.CONFIGURATION.PublicKey + ":" + strconv.Itoa(currentBlockIndex)
+	blockIdPrefix := strconv.Itoa(epochHandler.Id) + ":" + globals.CONFIGURATION.PublicKey + ":"
+	blockIdForHunting := blockIdPrefix + blockIndexToHunt
+	blockIdThatInPointer := blockIdPrefix + strconv.Itoa(currentBlockIndex)
 
 	// Resolve the block we are hunting for (may require DB read).
 	var blockToShare block_pack.Block
@@ -202,7 +203,7 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 	// At this point, having AFP for block (acceptedIndex+1) means block at acceptedIndex is now approved.
 	// Mark AARP_PRESENCE for any AARPs included in the approved block (async, non-blocking).
 	if acceptedIndex >= 0 {
-		approvedBlockId := strconv.Itoa(epochHandler.Id) + ":" + globals.CONFIGURATION.PublicKey + ":" + strconv.Itoa(acceptedIndex)
+		approvedBlockId := blockIdPrefix + strconv.Itoa(acceptedIndex)
 		go markAarpPresenceFromApprovedBlock(epochHandler.Id, globals.CONFIGURATION.PublicKey, approvedBlockId)
 	}
 

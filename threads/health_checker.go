@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +28,17 @@ var HEALTH_SNAPSHOTS_PER_ANCHOR = struct {
 	sync.Mutex
 	data map[string]AnchorHealthSnapshot
 }{data: make(map[string]AnchorHealthSnapshot)}
+
+type healthWsPool struct {
+	peersKey    string
+	connections map[string]*websocket.Conn
+	guards      *utils.WebsocketGuards
+}
+
+var HEALTH_WS_POOLS = struct {
+	sync.Mutex
+	data map[int]*healthWsPool
+}{data: make(map[int]*healthWsPool)}
 
 // HealthCheckerThread monitors anchors for stalled progress.
 func HealthCheckerThread() {
@@ -162,19 +174,10 @@ func tryPullVotingStatFromQuorum(epochHandler *structures.EpochDataHandler, crea
 		return false, current
 	}
 
-	connections := make(map[string]*websocket.Conn)
-	guards := utils.NewWebsocketGuards()
-	utils.OpenWebsocketConnectionsWithQuorum(peers, connections, guards)
-	defer func() {
-		guards.ConnMu.Lock()
-		for _, c := range connections {
-			if c != nil {
-				_ = c.Close()
-				guards.WriteMu.Delete(c)
-			}
-		}
-		guards.ConnMu.Unlock()
-	}()
+	pool := getHealthWsPool(epochHandler.Id, peers)
+	if pool == nil {
+		return false, current
+	}
 
 	needed := len(peers)
 	if needed > 3 {
@@ -184,11 +187,11 @@ func tryPullVotingStatFromQuorum(epochHandler *structures.EpochDataHandler, crea
 		needed = 1
 	}
 
-	waiter := utils.NewQuorumWaiter(len(peers), guards)
+	waiter := utils.NewQuorumWaiter(len(peers), pool.guards)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	responses, ok := waiter.SendAndWait(ctx, msg, peers, connections, needed)
+	responses, ok := waiter.SendAndWait(ctx, msg, peers, pool.connections, needed)
 	if !ok || len(responses) == 0 {
 		return false, current
 	}
@@ -264,4 +267,65 @@ func DeleteHealthSnapshotsForEpoch(epochID int) {
 		}
 	}
 	HEALTH_SNAPSHOTS_PER_ANCHOR.Unlock()
+}
+
+func getHealthWsPool(epochID int, peers []string) *healthWsPool {
+	if epochID < 0 || len(peers) == 0 {
+		return nil
+	}
+	peersKey := buildPeersKey(peers)
+	HEALTH_WS_POOLS.Lock()
+	if pool, ok := HEALTH_WS_POOLS.data[epochID]; ok {
+		if pool.peersKey == peersKey {
+			HEALTH_WS_POOLS.Unlock()
+			return pool
+		}
+		closeHealthWsPool(pool)
+	}
+	pool := &healthWsPool{
+		peersKey:    peersKey,
+		connections: make(map[string]*websocket.Conn),
+		guards:      utils.NewWebsocketGuards(),
+	}
+	utils.OpenWebsocketConnectionsWithQuorum(peers, pool.connections, pool.guards)
+	HEALTH_WS_POOLS.data[epochID] = pool
+	HEALTH_WS_POOLS.Unlock()
+	return pool
+}
+
+func buildPeersKey(peers []string) string {
+	if len(peers) == 1 {
+		return peers[0]
+	}
+	clone := make([]string, len(peers))
+	copy(clone, peers)
+	slices.Sort(clone)
+	return strings.Join(clone, "|")
+}
+
+func closeHealthWsPool(pool *healthWsPool) {
+	if pool == nil || pool.guards == nil || pool.guards.ConnMu == nil {
+		return
+	}
+	pool.guards.ConnMu.Lock()
+	for _, c := range pool.connections {
+		if c != nil {
+			_ = c.Close()
+			pool.guards.WriteMu.Delete(c)
+		}
+	}
+	pool.guards.ConnMu.Unlock()
+}
+
+// DeleteHealthConnectionsForEpoch closes cached WS connections for a dropped epoch.
+func DeleteHealthConnectionsForEpoch(epochID int) {
+	if epochID < 0 {
+		return
+	}
+	HEALTH_WS_POOLS.Lock()
+	if pool, ok := HEALTH_WS_POOLS.data[epochID]; ok {
+		closeHealthWsPool(pool)
+		delete(HEALTH_WS_POOLS.data, epochID)
+	}
+	HEALTH_WS_POOLS.Unlock()
 }
