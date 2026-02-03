@@ -21,6 +21,8 @@ import (
 
 var HTTP_CLIENT = &http.Client{Timeout: 5 * time.Second}
 
+const MAX_ROTATION_SIGNATURE_CONCURRENCY = 20
+
 func AnchorRotationCollectorThread() {
 
 	ticker := time.NewTicker(5 * time.Second)
@@ -139,11 +141,28 @@ func collectRotationSignatures(epochHandler *structures.EpochDataHandler, anchor
 	results := make(chan rotationResult, len(quorumMembers))
 	wg := &sync.WaitGroup{}
 
+	concurrency := MAX_ROTATION_SIGNATURE_CONCURRENCY
+	if concurrency > len(quorumMembers) {
+		concurrency = len(quorumMembers)
+	}
+	if concurrency <= 0 {
+		concurrency = 1
+	}
+	sem := make(chan struct{}, concurrency)
+
+loopMembers:
 	for _, member := range quorumMembers {
 
 		wg.Add(1)
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Done()
+			break loopMembers
+		}
 		go func(member utils.QuorumMemberData) {
 			defer wg.Done()
+			defer func() { <-sem }()
 
 			select {
 			case <-ctx.Done():
