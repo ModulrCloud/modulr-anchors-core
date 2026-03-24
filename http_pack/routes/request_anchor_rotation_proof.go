@@ -94,7 +94,7 @@ func handlerLocalIsBiggerThanProposalIndex(ctx *fasthttp.RequestCtx, stat struct
 
 func handleMatchingIndexes(ctx *fasthttp.RequestCtx, creator string, current, proposal structures.VotingStat, epochHandler *structures.EpochDataHandler) {
 
-	if !strings.EqualFold(current.Hash, proposal.Hash) {
+	if current.Hash != proposal.Hash {
 		ctx.SetStatusCode(fasthttp.StatusConflict)
 		ctx.Write([]byte(`{"err":"hash mismatch"}`))
 		return
@@ -136,7 +136,7 @@ func validateProposalWithBiggerIndex(current, proposal structures.VotingStat, ep
 		return fmt.Errorf("proposal index %d does not advance current index %d", proposal.Index, current.Index)
 	}
 
-	if proposal.Hash == "" || !strings.EqualFold(proposal.Hash, proposal.Afp.BlockHash) {
+	if proposal.Hash == "" || proposal.Hash != proposal.Afp.BlockHash {
 		return errors.New("proposal hash does not match AFP block hash")
 	}
 
@@ -159,7 +159,7 @@ func validateProposalWithBiggerIndex(current, proposal structures.VotingStat, ep
 		return errors.New("AFP index mismatch")
 	}
 
-	if proposal.Afp.PrevBlockHash == "" || !strings.EqualFold(proposal.Afp.PrevBlockHash, current.Hash) {
+	if proposal.Afp.PrevBlockHash == "" || proposal.Afp.PrevBlockHash != current.Hash {
 		return errors.New("AFP prev hash mismatch")
 	}
 

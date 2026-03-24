@@ -79,7 +79,7 @@ func deliverAarpsForEpoch(epochHandler *structures.EpochDataHandler, client *htt
 				continue
 			}
 			// Don't send to self.
-			if strings.EqualFold(receiverPk, globals.CONFIGURATION.PublicKey) {
+			if receiverPk == globals.CONFIGURATION.PublicKey {
 				continue
 			}
 
@@ -117,7 +117,7 @@ func deliverAarpsForEpoch(epochHandler *structures.EpochDataHandler, client *htt
 					if r.Status != "OK" || r.EpochIndex != epochHandler.Id {
 						continue
 					}
-					if !strings.EqualFold(r.ReceiverAnchor, receiverPk) || !strings.EqualFold(r.RotatedAnchor, rotatedAnchor) {
+					if r.ReceiverAnchor != receiverPk || r.RotatedAnchor != rotatedAnchor {
 						continue
 					}
 					if r.BlockId == "" || len(r.Block) == 0 || len(r.Afp) == 0 {
@@ -128,7 +128,7 @@ func deliverAarpsForEpoch(epochHandler *structures.EpochDataHandler, client *htt
 					if json.Unmarshal(r.Block, &block) != nil || !block.VerifySignature() {
 						continue
 					}
-					if !strings.EqualFold(block.Creator, receiverPk) {
+					if block.Creator != receiverPk {
 						continue
 					}
 

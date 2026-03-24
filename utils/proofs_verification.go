@@ -23,17 +23,15 @@ func VerifyAggregatedFinalizationProof(proof *structures.AggregatedFinalizationP
 	quorumMap := make(map[string]bool)
 
 	for _, pk := range epochHandler.Quorum {
-		quorumMap[strings.ToLower(pk)] = true
+		quorumMap[pk] = true
 	}
 
 	for pubKey, signature := range proof.Proofs {
 
 		if cryptography.VerifySignature(dataThatShouldBeSigned, pubKey, signature) {
 
-			loweredPubKey := strings.ToLower(pubKey)
-
-			if quorumMap[loweredPubKey] && !seen[loweredPubKey] {
-				seen[loweredPubKey] = true
+			if quorumMap[pubKey] && !seen[pubKey] {
+				seen[pubKey] = true
 				okSignatures++
 			}
 		}
