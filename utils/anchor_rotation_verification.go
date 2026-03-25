@@ -41,7 +41,11 @@ func VerifyAggregatedAnchorRotationProof(proof *structures.AggregatedAnchorRotat
 
 	dataToVerify := BuildAnchorRotationProofPayload(proof.Anchor, proof.VotingStat.Index, proof.VotingStat.Hash, proof.EpochIndex)
 
-	quorum := epochHandler.Quorum
+	quorumMap := make(map[string]bool, len(epochHandler.Quorum))
+	for _, pk := range epochHandler.Quorum {
+		quorumMap[pk] = true
+	}
+
 	verified := 0
 	seen := make(map[string]struct{})
 	for voter, signature := range proof.Signatures {
@@ -51,7 +55,7 @@ func VerifyAggregatedAnchorRotationProof(proof *structures.AggregatedAnchorRotat
 		if _, dup := seen[voter]; dup {
 			continue
 		}
-		if !slices.Contains(quorum, voter) {
+		if !quorumMap[voter] {
 			continue
 		}
 		if !cryptography.VerifySignature(dataToVerify, voter, signature) {

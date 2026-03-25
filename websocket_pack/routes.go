@@ -23,26 +23,29 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 		return
 	}
 
+	// Snapshot epoch data under RLock, then release immediately to avoid blocking epoch rotation during DB I/O.
 	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
-
-	defer handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
+	epochHandlers := handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandlers()
+	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
 
 	reqEpochID := parsedRequest.Block.Epoch
-	epochHandlers := handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandlers()
 
-	var epochHandler *structures.EpochDataHandler
+	var epochHandlerCopy structures.EpochDataHandler
+	found := false
 
 	for idx := range epochHandlers {
-		candidate := epochHandlers[idx]
-		fullID := candidate.Hash + "#" + strconv.Itoa(candidate.Id)
+		fullID := epochHandlers[idx].Hash + "#" + strconv.Itoa(epochHandlers[idx].Id)
 		if fullID == reqEpochID {
-			epochHandler = &epochHandlers[idx]
+			epochHandlerCopy = epochHandlers[idx]
+			found = true
 			break
 		}
 	}
-	if epochHandler == nil {
+	if !found {
 		return
 	}
+
+	epochHandler := &epochHandlerCopy
 
 	if !slices.Contains(epochHandler.AnchorsRegistry, parsedRequest.Block.Creator) {
 		return

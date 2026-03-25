@@ -44,6 +44,11 @@ func SendToAnchorsPoDWithOutbox(id string, payload []byte) bool {
 	return false
 }
 
+type outboxEntry struct {
+	id      string
+	payload []byte
+}
+
 func FlushAnchorsPoDOutboxOnce(limit int) int {
 	if databases.FINALIZATION_VOTING_STATS == nil {
 		return 0
@@ -52,12 +57,13 @@ func FlushAnchorsPoDOutboxOnce(limit int) int {
 		limit = 50
 	}
 
-	it := databases.FINALIZATION_VOTING_STATS.NewIterator(util.BytesPrefix([]byte(POD_OUTBOX_PREFIX)), nil)
-	defer it.Release()
+	// Collect entries from LevelDB iterator first, then release it before doing network I/O.
+	// Holding the iterator during slow websocket retries blocks LevelDB compaction.
+	entries := make([]outboxEntry, 0, limit)
 
-	sent := 0
+	it := databases.FINALIZATION_VOTING_STATS.NewIterator(util.BytesPrefix([]byte(POD_OUTBOX_PREFIX)), nil)
 	for it.Next() {
-		if sent >= limit {
+		if len(entries) >= limit {
 			break
 		}
 		key := string(it.Key())
@@ -70,7 +76,13 @@ func FlushAnchorsPoDOutboxOnce(limit int) int {
 			_ = databases.FINALIZATION_VOTING_STATS.Delete([]byte(key), nil)
 			continue
 		}
-		if SendToAnchorsPoDWithOutbox(id, payload) {
+		entries = append(entries, outboxEntry{id: id, payload: payload})
+	}
+	it.Release()
+
+	sent := 0
+	for _, entry := range entries {
+		if SendToAnchorsPoDWithOutbox(entry.id, entry.payload) {
 			sent++
 		}
 	}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/modulrcloud/modulr-anchors-core/globals"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
+	"github.com/modulrcloud/modulr-anchors-core/utils"
 
 	"github.com/valyala/fasthttp"
 )
@@ -53,6 +54,10 @@ func storeAggregatedLeaderFinalizationFromRequest(proof structures.AggregatedLea
 
 	if len(proof.Signatures) == 0 {
 		return fmt.Errorf("missing signatures")
+	}
+
+	if utils.GetEpochHandlerByID(proof.EpochIndex) == nil {
+		return fmt.Errorf("epoch %d is not in supported window", proof.EpochIndex)
 	}
 
 	globals.MEMPOOL.AddAggregatedLeaderFinalizationProof(proof)
