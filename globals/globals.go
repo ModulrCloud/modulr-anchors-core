@@ -47,6 +47,8 @@ var CONFIGURATION structures.NodeLevelConfig
 
 var GENESIS structures.Genesis
 
+var CORE_GENESIS structures.CoreGenesis
+
 // Flag to use in websocket & http routes to prevent flood of .RLock() calls on mutexes
 
 var FLOOD_PREVENTION_FLAG_FOR_ROUTES atomic.Bool
