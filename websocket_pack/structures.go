@@ -46,3 +46,12 @@ type WsVotingStatResponse struct {
 	VotingStat structures.VotingStat `json:"votingStat"`
 	Error      string                `json:"error,omitempty"`
 }
+
+type WsAcceptQuorumRotationRequest struct {
+	Route       string                                `json:"route"`
+	Attestation structures.QuorumRotationAttestation `json:"attestation"`
+}
+
+type WsStatusResponse struct {
+	Status string `json:"status"`
+}

@@ -301,6 +301,45 @@ func GetVotingStat(parsedRequest WsVotingStatRequest, connection *gws.Conn) {
 	}
 }
 
+func AcceptQuorumRotation(parsedRequest WsAcceptQuorumRotationRequest, connection *gws.Conn) {
+
+	if !globals.FLOOD_PREVENTION_FLAG_FOR_ROUTES.Load() {
+		return
+	}
+
+	state := utils.LoadCoreQuorumState()
+
+	if state == nil {
+		return
+	}
+
+	attestation := &parsedRequest.Attestation
+
+	if attestation.EpochId != state.CurrentEpochId {
+		return
+	}
+
+	if !utils.VerifyQuorumRotationAttestation(attestation, state.CurrentQuorum) {
+		return
+	}
+
+	state.CurrentEpochId = attestation.NextEpochId
+	state.CurrentQuorum = attestation.NextQuorum
+
+	utils.PersistCoreQuorumState(state)
+
+	resp := WsStatusResponse{Status: "OK"}
+
+	if b, err := json.Marshal(resp); err == nil {
+		connection.WriteMessage(gws.OpcodeText, b)
+	}
+
+	utils.LogWithTime(
+		"Core quorum rotation applied: epoch "+strconv.Itoa(attestation.EpochId)+" -> "+strconv.Itoa(attestation.NextEpochId),
+		utils.CYAN_COLOR,
+	)
+}
+
 func processAnchorRotationProofsAsync(block block_pack.Block, epochHandler *structures.EpochDataHandler, blockId string) {
 
 	if len(block.ExtraData.AggregatedAnchorRotationProofs) == 0 || epochHandler == nil {

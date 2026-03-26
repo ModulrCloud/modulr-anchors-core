@@ -31,6 +31,9 @@ func createRouter() fasthttp.RequestHandler {
 	// Route to accept ALFP (Aggregated Leader Finalization Proof) from modulr-core logic, put to mempool and include to blocks
 	r.POST("/accept_aggregated_leader_finalization_proof", routes.AcceptAggregatedLeaderFinalizationProof)
 
+	// Core quorum state for recovery
+	r.GET("/core/quorum_state", routes.GetCoreQuorumState)
+
 	return r.Handler
 }
 

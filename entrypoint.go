@@ -145,6 +145,14 @@ func prepareAnchorsChains() error {
 	if err := loadGenerationThreadMetadata(); err != nil {
 		return err
 	}
+
+	coreQuorumState := utils.InitCoreQuorumStateFromGenesis()
+
+	utils.LogWithTime(
+		fmt.Sprintf("Core quorum state initialized: epoch %d, quorum size %d", coreQuorumState.CurrentEpochId, len(coreQuorumState.CurrentQuorum)),
+		utils.CYAN_COLOR,
+	)
+
 	return nil
 }
 
