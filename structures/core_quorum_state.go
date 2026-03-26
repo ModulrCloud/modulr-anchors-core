@@ -3,15 +3,17 @@ package structures
 import "encoding/json"
 
 type CoreQuorumState struct {
-	CurrentEpochId int      `json:"currentEpochId"`
-	CurrentQuorum  []string `json:"currentQuorum"`
+	CurrentEpochId   int      `json:"currentEpochId"`
+	CurrentEpochHash string   `json:"currentEpochHash"`
+	CurrentQuorum    []string `json:"currentQuorum"`
 }
 
 type QuorumRotationAttestation struct {
-	EpochId     int               `json:"epochId"`
-	NextEpochId int               `json:"nextEpochId"`
-	NextQuorum  []string          `json:"nextQuorum"`
-	Proofs      map[string]string `json:"proofs"`
+	EpochId       int               `json:"epochId"`
+	NextEpochId   int               `json:"nextEpochId"`
+	NextEpochHash string            `json:"nextEpochHash"`
+	NextQuorum    []string          `json:"nextQuorum"`
+	Proofs        map[string]string `json:"proofs"`
 }
 
 func (qra *QuorumRotationAttestation) UnmarshalJSON(data []byte) error {

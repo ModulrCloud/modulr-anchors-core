@@ -46,15 +46,65 @@ func InitCoreQuorumStateFromGenesis() *structures.CoreQuorumState {
 	}
 
 	quorum := ComputeCoreQuorumFromGenesis()
+	epochHash := ComputeCoreInitialEpochHash()
 
 	state := &structures.CoreQuorumState{
-		CurrentEpochId: 0,
-		CurrentQuorum:  quorum,
+		CurrentEpochId:   0,
+		CurrentEpochHash: epochHash,
+		CurrentQuorum:    quorum,
 	}
 
 	PersistCoreQuorumState(state)
 
 	return state
+}
+
+// VerifyCoreAlfp performs full cryptographic verification of an ALFP from modulr-core.
+// It checks that signatures are from legitimate core quorum members, verifies the
+// signed data using the core epoch hash, and requires 2/3+1 majority.
+func VerifyCoreAlfp(proof *structures.AggregatedLeaderFinalizationProof, coreState *structures.CoreQuorumState) bool {
+
+	if proof == nil || coreState == nil || len(coreState.CurrentQuorum) == 0 || len(proof.Signatures) == 0 {
+		return false
+	}
+
+	if coreState.CurrentEpochHash == "" {
+		return false
+	}
+
+	majority := (2*len(coreState.CurrentQuorum))/3 + 1
+	if majority > len(coreState.CurrentQuorum) {
+		majority = len(coreState.CurrentQuorum)
+	}
+
+	quorumMap := make(map[string]bool, len(coreState.CurrentQuorum))
+	for _, pk := range coreState.CurrentQuorum {
+		quorumMap[pk] = true
+	}
+
+	epochFullID := coreState.CurrentEpochHash + "#" + strconv.Itoa(coreState.CurrentEpochId)
+
+	dataToVerify := strings.Join([]string{
+		"LEADER_FINALIZATION_PROOF",
+		proof.Leader,
+		strconv.Itoa(proof.VotingStat.Index),
+		proof.VotingStat.Hash,
+		epochFullID,
+	}, ":")
+
+	okSignatures := 0
+	seen := make(map[string]bool)
+
+	for pubKey, signature := range proof.Signatures {
+		if quorumMap[pubKey] && !seen[pubKey] {
+			if cryptography.VerifySignature(dataToVerify, pubKey, signature) {
+				seen[pubKey] = true
+				okSignatures++
+			}
+		}
+	}
+
+	return okSignatures >= majority
 }
 
 func VerifyQuorumRotationAttestation(attestation *structures.QuorumRotationAttestation, currentQuorum []string) bool {
@@ -77,7 +127,7 @@ func VerifyQuorumRotationAttestation(attestation *structures.QuorumRotationAttes
 	copy(sortedNextQuorum, attestation.NextQuorum)
 	sort.Strings(sortedNextQuorum)
 
-	dataToVerify := "QUORUM_ROTATION:" + strconv.Itoa(attestation.EpochId) + ":" + strconv.Itoa(attestation.NextEpochId) + ":" + strings.Join(sortedNextQuorum, ",")
+	dataToVerify := "QUORUM_ROTATION:" + strconv.Itoa(attestation.EpochId) + ":" + strconv.Itoa(attestation.NextEpochId) + ":" + attestation.NextEpochHash + ":" + strings.Join(sortedNextQuorum, ",")
 
 	okSignatures := 0
 	seen := make(map[string]bool)

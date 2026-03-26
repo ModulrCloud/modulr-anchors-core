@@ -324,6 +324,7 @@ func AcceptQuorumRotation(parsedRequest WsAcceptQuorumRotationRequest, connectio
 	}
 
 	state.CurrentEpochId = attestation.NextEpochId
+	state.CurrentEpochHash = attestation.NextEpochHash
 	state.CurrentQuorum = attestation.NextQuorum
 
 	utils.PersistCoreQuorumState(state)

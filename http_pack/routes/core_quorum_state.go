@@ -11,10 +11,11 @@ import (
 )
 
 type CoreQuorumStateResponse struct {
-	CurrentEpochId int      `json:"currentEpochId"`
-	CurrentQuorum  []string `json:"currentQuorum"`
-	AnchorPubkey   string   `json:"anchorPubkey"`
-	Signature      string   `json:"signature"`
+	CurrentEpochId   int      `json:"currentEpochId"`
+	CurrentEpochHash string   `json:"currentEpochHash"`
+	CurrentQuorum    []string `json:"currentQuorum"`
+	AnchorPubkey     string   `json:"anchorPubkey"`
+	Signature        string   `json:"signature"`
 }
 
 func GetCoreQuorumState(ctx *fasthttp.RequestCtx) {
@@ -42,10 +43,11 @@ func GetCoreQuorumState(ctx *fasthttp.RequestCtx) {
 	sig := cryptography.GenerateSignature(globals.CONFIGURATION.PrivateKey, string(stateBytes))
 
 	resp := CoreQuorumStateResponse{
-		CurrentEpochId: state.CurrentEpochId,
-		CurrentQuorum:  state.CurrentQuorum,
-		AnchorPubkey:   globals.CONFIGURATION.PublicKey,
-		Signature:      sig,
+		CurrentEpochId:   state.CurrentEpochId,
+		CurrentEpochHash: state.CurrentEpochHash,
+		CurrentQuorum:    state.CurrentQuorum,
+		AnchorPubkey:     globals.CONFIGURATION.PublicKey,
+		Signature:        sig,
 	}
 
 	respBytes, err := json.Marshal(resp)

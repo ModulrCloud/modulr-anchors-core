@@ -60,6 +60,16 @@ func storeAggregatedLeaderFinalizationFromRequest(proof structures.AggregatedLea
 		return fmt.Errorf("epoch %d is not in supported window", proof.EpochIndex)
 	}
 
+	coreState := utils.LoadCoreQuorumState()
+
+	if coreState == nil {
+		return fmt.Errorf("core quorum state not initialized")
+	}
+
+	if !utils.VerifyCoreAlfp(&proof, coreState) {
+		return fmt.Errorf("ALFP cryptographic verification failed")
+	}
+
 	globals.MEMPOOL.AddAggregatedLeaderFinalizationProof(proof)
 	return nil
 }

@@ -6,6 +6,15 @@ import (
 	"github.com/modulrcloud/modulr-anchors-core/globals"
 )
 
+func ComputeCoreInitialEpochHash() string {
+
+	cg := &globals.CORE_GENESIS
+
+	hashInput := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" + cg.NetworkId + strconv.FormatUint(cg.FirstEpochStartTimestamp, 10)
+
+	return Blake3(hashInput)
+}
+
 // ComputeCoreQuorumFromGenesis deterministically computes the modulr-core quorum
 // for epoch 0 using the same algorithm as modulr-core itself.
 // This allows anchors to know the initial core quorum without running a core node.
@@ -13,9 +22,7 @@ func ComputeCoreQuorumFromGenesis() []string {
 
 	cg := &globals.CORE_GENESIS
 
-	hashInput := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" + cg.NetworkId + strconv.FormatUint(cg.FirstEpochStartTimestamp, 10)
-
-	initEpochHash := Blake3(hashInput)
+	initEpochHash := ComputeCoreInitialEpochHash()
 
 	pubkeys := make([]string, 0, len(cg.Validators))
 	stakes := make([]uint64, 0, len(cg.Validators))
