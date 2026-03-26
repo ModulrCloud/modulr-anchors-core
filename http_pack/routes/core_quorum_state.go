@@ -11,11 +11,11 @@ import (
 )
 
 type CoreQuorumStateResponse struct {
-	CurrentEpochId   int      `json:"currentEpochId"`
-	CurrentEpochHash string   `json:"currentEpochHash"`
-	CurrentQuorum    []string `json:"currentQuorum"`
-	AnchorPubkey     string   `json:"anchorPubkey"`
-	Signature        string   `json:"signature"`
+	LatestEpochId   int      `json:"latestEpochId"`
+	LatestEpochHash string   `json:"latestEpochHash"`
+	LatestQuorum    []string `json:"latestQuorum"`
+	AnchorPubkey    string   `json:"anchorPubkey"`
+	Signature       string   `json:"signature"`
 }
 
 func GetCoreQuorumState(ctx *fasthttp.RequestCtx) {
@@ -31,23 +31,32 @@ func GetCoreQuorumState(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	stateBytes, err := json.Marshal(state)
+	epochData := utils.LoadCoreEpochData(state.LatestEpochId)
+
+	if epochData == nil {
+		ctx.SetStatusCode(fasthttp.StatusNotFound)
+		ctx.SetContentType("application/json")
+		ctx.Write([]byte(`{"err": "Core epoch data not found"}`))
+		return
+	}
+
+	dataToSign, err := json.Marshal(epochData)
 
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 		ctx.SetContentType("application/json")
-		ctx.Write([]byte(`{"err": "Failed to serialize state"}`))
+		ctx.Write([]byte(`{"err": "Failed to serialize epoch data"}`))
 		return
 	}
 
-	sig := cryptography.GenerateSignature(globals.CONFIGURATION.PrivateKey, string(stateBytes))
+	sig := cryptography.GenerateSignature(globals.CONFIGURATION.PrivateKey, string(dataToSign))
 
 	resp := CoreQuorumStateResponse{
-		CurrentEpochId:   state.CurrentEpochId,
-		CurrentEpochHash: state.CurrentEpochHash,
-		CurrentQuorum:    state.CurrentQuorum,
-		AnchorPubkey:     globals.CONFIGURATION.PublicKey,
-		Signature:        sig,
+		LatestEpochId:   epochData.EpochId,
+		LatestEpochHash: epochData.EpochHash,
+		LatestQuorum:    epochData.Quorum,
+		AnchorPubkey:    globals.CONFIGURATION.PublicKey,
+		Signature:       sig,
 	}
 
 	respBytes, err := json.Marshal(resp)

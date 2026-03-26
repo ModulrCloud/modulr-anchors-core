@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/modulrcloud/modulr-anchors-core/block_pack"
 	"github.com/modulrcloud/modulr-anchors-core/cryptography"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/lxzan/gws"
 )
+
+var coreQuorumRotationMutex sync.Mutex
 
 func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *gws.Conn) {
 
@@ -307,32 +310,33 @@ func AcceptQuorumRotation(parsedRequest WsAcceptQuorumRotationRequest, connectio
 		return
 	}
 
-	state := utils.LoadCoreQuorumState()
+	attestation := parsedRequest.Attestation
 
+	go applyCoreQuorumRotationWithCatchUp(&attestation)
+}
+
+func applyCoreQuorumRotationWithCatchUp(attestation *structures.QuorumRotationAttestation) {
+
+	coreQuorumRotationMutex.Lock()
+	defer coreQuorumRotationMutex.Unlock()
+
+	state := utils.LoadCoreQuorumState()
 	if state == nil {
 		return
 	}
 
-	attestation := &parsedRequest.Attestation
-
-	if attestation.EpochId != state.CurrentEpochId {
-		return
+	if attestation.EpochId > state.LatestEpochId {
+		catchedUp := utils.CatchUpCoreQuorumRotations(attestation.EpochId, GetQuorumRotationFromCorePod)
+		if catchedUp > 0 {
+			utils.LogWithTime(
+				"Core quorum catch-up: filled "+strconv.Itoa(catchedUp)+" missing epoch(s) before applying rotation",
+				utils.CYAN_COLOR,
+			)
+		}
 	}
 
-	if !utils.VerifyQuorumRotationAttestation(attestation, state.CurrentQuorum) {
+	if !utils.ApplyCoreQuorumRotation(attestation) {
 		return
-	}
-
-	state.CurrentEpochId = attestation.NextEpochId
-	state.CurrentEpochHash = attestation.NextEpochHash
-	state.CurrentQuorum = attestation.NextQuorum
-
-	utils.PersistCoreQuorumState(state)
-
-	resp := WsStatusResponse{Status: "OK"}
-
-	if b, err := json.Marshal(resp); err == nil {
-		connection.WriteMessage(gws.OpcodeText, b)
 	}
 
 	utils.LogWithTime(

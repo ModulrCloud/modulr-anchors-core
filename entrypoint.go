@@ -148,8 +148,15 @@ func prepareAnchorsChains() error {
 
 	coreQuorumState := utils.InitCoreQuorumStateFromGenesis()
 
+	epochData := utils.LoadCoreEpochData(coreQuorumState.LatestEpochId)
+
+	quorumSize := 0
+	if epochData != nil {
+		quorumSize = len(epochData.Quorum)
+	}
+
 	utils.LogWithTime(
-		fmt.Sprintf("Core quorum state initialized: epoch %d, quorum size %d", coreQuorumState.CurrentEpochId, len(coreQuorumState.CurrentQuorum)),
+		fmt.Sprintf("Core quorum state initialized: latest epoch %d, quorum size %d", coreQuorumState.LatestEpochId, quorumSize),
 		utils.CYAN_COLOR,
 	)
 

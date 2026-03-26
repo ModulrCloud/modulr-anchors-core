@@ -1,13 +1,14 @@
 package structures
 
 type NodeLevelConfig struct {
-	PublicKey             string            `json:"PUBLIC_KEY"`
-	PrivateKey            string            `json:"PRIVATE_KEY"`
-	ExtraDataToBlock      map[string]string `json:"EXTRA_DATA_TO_BLOCK"`
-	Interface             string            `json:"INTERFACE"`
-	Port                  int               `json:"PORT"`
-	WebSocketInterface    string            `json:"WEBSOCKET_INTERFACE"`
-	WebSocketPort         int               `json:"WEBSOCKET_PORT"`
-	PointOfDistributionWS string            `json:"POINT_OF_DISTRIBUTION"`
-	DisablePoDOutbox      bool              `json:"DISABLE_POD_OUTBOX"`
+	PublicKey                  string            `json:"PUBLIC_KEY"`
+	PrivateKey                 string            `json:"PRIVATE_KEY"`
+	ExtraDataToBlock           map[string]string `json:"EXTRA_DATA_TO_BLOCK"`
+	Interface                  string            `json:"INTERFACE"`
+	Port                       int               `json:"PORT"`
+	WebSocketInterface         string            `json:"WEBSOCKET_INTERFACE"`
+	WebSocketPort              int               `json:"WEBSOCKET_PORT"`
+	PointOfDistributionWS      string            `json:"POINT_OF_DISTRIBUTION"`
+	CorePointOfDistributionWS  string            `json:"CORE_POINT_OF_DISTRIBUTION"`
+	DisablePoDOutbox           bool              `json:"DISABLE_POD_OUTBOX"`
 }

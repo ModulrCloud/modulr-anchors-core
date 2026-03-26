@@ -2,10 +2,14 @@ package structures
 
 import "encoding/json"
 
+type CoreEpochData struct {
+	EpochId   int      `json:"epochId"`
+	EpochHash string   `json:"epochHash"`
+	Quorum    []string `json:"quorum"`
+}
+
 type CoreQuorumState struct {
-	CurrentEpochId   int      `json:"currentEpochId"`
-	CurrentEpochHash string   `json:"currentEpochHash"`
-	CurrentQuorum    []string `json:"currentQuorum"`
+	LatestEpochId int `json:"latestEpochId"`
 }
 
 type QuorumRotationAttestation struct {

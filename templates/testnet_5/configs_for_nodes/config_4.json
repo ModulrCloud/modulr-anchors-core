@@ -14,5 +14,6 @@
   "WEBSOCKET_INTERFACE": "0.0.0.0",
   "WEBSOCKET_PORT": 9996,
 
-  "POINT_OF_DISTRIBUTION":"ws://localhost:9070"
+  "POINT_OF_DISTRIBUTION":"ws://localhost:9070",
+  "CORE_POINT_OF_DISTRIBUTION":"ws://localhost:9060"
 }
