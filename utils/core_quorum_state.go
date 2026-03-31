@@ -71,6 +71,32 @@ func DeleteCoreEpochData(epochId int) {
 	_ = databases.EPOCH_DATA.Delete(coreEpochDataKey(epochId), nil)
 }
 
+func coreQuorumRotationAttestationKey(epochId int) []byte {
+	return []byte(fmt.Sprintf("CORE_QR_ATTESTATION:%d", epochId))
+}
+
+func PersistQuorumRotationAttestation(attestation *structures.QuorumRotationAttestation) {
+	if raw, err := json.Marshal(attestation); err == nil {
+		_ = databases.EPOCH_DATA.Put(coreQuorumRotationAttestationKey(attestation.NextEpochId), raw, nil)
+	}
+}
+
+func LoadQuorumRotationAttestation(epochId int) *structures.QuorumRotationAttestation {
+	raw, err := databases.EPOCH_DATA.Get(coreQuorumRotationAttestationKey(epochId), nil)
+	if err != nil || len(raw) == 0 {
+		return nil
+	}
+	var attestation structures.QuorumRotationAttestation
+	if json.Unmarshal(raw, &attestation) != nil {
+		return nil
+	}
+	return &attestation
+}
+
+func DeleteQuorumRotationAttestation(epochId int) {
+	_ = databases.EPOCH_DATA.Delete(coreQuorumRotationAttestationKey(epochId), nil)
+}
+
 func InitCoreQuorumStateFromGenesis() *structures.CoreQuorumState {
 
 	existing := LoadCoreQuorumState()
@@ -130,6 +156,7 @@ func ApplyCoreQuorumRotation(attestation *structures.QuorumRotationAttestation) 
 	}
 
 	PersistCoreEpochData(newEpochData)
+	PersistQuorumRotationAttestation(attestation)
 
 	state.LatestEpochId = attestation.NextEpochId
 	PersistCoreQuorumState(state)
@@ -159,6 +186,7 @@ func cleanupOldCoreEpochData(latestEpochId int) {
 			break
 		}
 		DeleteCoreEpochData(epochId)
+		DeleteQuorumRotationAttestation(epochId)
 	}
 }
 
