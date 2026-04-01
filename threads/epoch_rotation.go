@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/modulrcloud/modulr-anchors-core/constants"
 	"github.com/modulrcloud/modulr-anchors-core/databases"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
 	"github.com/modulrcloud/modulr-anchors-core/handlers"
@@ -96,7 +97,7 @@ func EpochRotationThread() {
 
 			handlerRef.SupportedEpochs = handlerRef.SupportedEpochs[1:]
 
-			keyValue := []byte("EPOCH_FINISH:" + strconv.Itoa(dropped.Id))
+			keyValue := []byte(constants.DBKeyPrefixEpochFinish + strconv.Itoa(dropped.Id))
 
 			if err := databases.EPOCH_DATA.Put(keyValue, []byte("TRUE"), nil); err != nil {
 				panic("Failed to mark epoch as finished: " + err.Error())
@@ -114,7 +115,7 @@ func EpochRotationThread() {
 			DeleteHealthConnectionsForEpoch(dropped.Id)
 			utils.ClearAggregatedAnchorRotationProofCache(dropped.Id)
 
-			if err := databases.BLOCKS.Delete([]byte("GT:"+epochFullID), nil); err != nil {
+			if err := databases.BLOCKS.Delete([]byte(constants.DBKeyPrefixGenerationThread+epochFullID), nil); err != nil {
 				utils.LogWithTime("Failed to delete generation metadata: "+err.Error(), utils.RED_COLOR)
 			}
 
@@ -124,7 +125,7 @@ func EpochRotationThread() {
 
 		jsonedHandler, _ := json.Marshal(handlerRef)
 
-		atomicBatch.Put([]byte("AT"), jsonedHandler)
+		atomicBatch.Put([]byte(constants.DBKeyApprovementThreadMetadata), jsonedHandler)
 
 		if batchCommitErr := databases.APPROVEMENT_THREAD_METADATA.Write(atomicBatch, nil); batchCommitErr != nil {
 			panic("Error with writing batch to approvement thread db. Try to launch again")

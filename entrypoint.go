@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/modulrcloud/modulr-anchors-core/constants"
 	"github.com/modulrcloud/modulr-anchors-core/databases"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
 	"github.com/modulrcloud/modulr-anchors-core/handlers"
@@ -111,7 +112,7 @@ func prepareAnchorsChains() error {
 	databases.APPROVEMENT_THREAD_METADATA = utils.OpenDb("APPROVEMENT_THREAD_METADATA")
 	databases.FINALIZATION_VOTING_STATS = utils.OpenDb("FINALIZATION_VOTING_STATS")
 
-	if data, err := databases.APPROVEMENT_THREAD_METADATA.Get([]byte("AT"), nil); err == nil {
+	if data, err := databases.APPROVEMENT_THREAD_METADATA.Get([]byte(constants.DBKeyApprovementThreadMetadata), nil); err == nil {
 
 		var atHandler structures.ApprovementThreadMetadataHandler
 
@@ -133,7 +134,7 @@ func prepareAnchorsChains() error {
 			return fmt.Errorf("marshal APPROVEMENT_THREAD metadata: %w", err)
 		}
 
-		if err := databases.APPROVEMENT_THREAD_METADATA.Put([]byte("AT"), serializedApprovementThread, nil); err != nil {
+		if err := databases.APPROVEMENT_THREAD_METADATA.Put([]byte(constants.DBKeyApprovementThreadMetadata), serializedApprovementThread, nil); err != nil {
 			return fmt.Errorf("save APPROVEMENT_THREAD metadata: %w", err)
 		}
 
@@ -197,7 +198,7 @@ func loadGenesis() error {
 		return err
 	}
 
-	hashInput := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" + globals.GENESIS.NetworkId + strconv.FormatUint(epochTimestamp, 10)
+	hashInput := constants.ZeroBlockHash + globals.GENESIS.NetworkId + strconv.FormatUint(epochTimestamp, 10)
 
 	initEpochHash := utils.Blake3(hashInput)
 
@@ -235,7 +236,7 @@ func ensureEpochWindow(handler *structures.ApprovementThreadMetadataHandler) err
 		toDrop := handler.SupportedEpochs[:offset]
 		handler.SupportedEpochs = handler.SupportedEpochs[offset:]
 		for _, dropped := range toDrop {
-			keyValue := []byte("EPOCH_FINISH:" + strconv.Itoa(dropped.Id))
+			keyValue := []byte(constants.DBKeyPrefixEpochFinish + strconv.Itoa(dropped.Id))
 			if err := databases.EPOCH_DATA.Put(keyValue, []byte("TRUE"), nil); err != nil {
 				return fmt.Errorf("store finalization voting stats: %w", err)
 			}
@@ -244,7 +245,7 @@ func ensureEpochWindow(handler *structures.ApprovementThreadMetadataHandler) err
 			threads.DeleteHealthSnapshotsForEpoch(dropped.Id)
 			threads.DeleteHealthConnectionsForEpoch(dropped.Id)
 			utils.ClearAggregatedAnchorRotationProofCache(dropped.Id)
-			if err := databases.BLOCKS.Delete([]byte("GT:"+epochFullID), nil); err != nil {
+			if err := databases.BLOCKS.Delete([]byte(constants.DBKeyPrefixGenerationThread+epochFullID), nil); err != nil {
 				return fmt.Errorf("delete blocks for epoch %s: %w", epochFullID, err)
 			}
 		}
@@ -258,7 +259,7 @@ func loadGenerationThreadMetadata() error {
 
 	for _, epoch := range epochHandlers {
 		epochFullID := epoch.Hash + "#" + strconv.Itoa(epoch.Id)
-		key := []byte("GT:" + epochFullID)
+		key := []byte(constants.DBKeyPrefixGenerationThread + epochFullID)
 		if data, err := databases.BLOCKS.Get(key, nil); err == nil {
 			var gtHandler structures.GenerationThreadMetadataHandler
 			if err := json.Unmarshal(data, &gtHandler); err != nil {
@@ -273,7 +274,7 @@ func loadGenerationThreadMetadata() error {
 		if _, ok := handlers.GENERATION_THREAD_METADATA.Handlers[epochFullID]; !ok {
 			handlers.GENERATION_THREAD_METADATA.Handlers[epochFullID] = &structures.GenerationThreadMetadataHandler{
 				EpochFullId: epochFullID,
-				PrevHash:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+				PrevHash:    constants.ZeroBlockHash,
 				NextIndex:   0,
 			}
 		}

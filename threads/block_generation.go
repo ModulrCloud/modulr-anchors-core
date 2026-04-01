@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/modulrcloud/modulr-anchors-core/block_pack"
+	"github.com/modulrcloud/modulr-anchors-core/constants"
 	"github.com/modulrcloud/modulr-anchors-core/databases"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
 	"github.com/modulrcloud/modulr-anchors-core/handlers"
@@ -153,7 +154,7 @@ func generateBlock(epochHandlerRef *structures.EpochDataHandler) {
 
 		blockDbAtomicBatch.Put([]byte(blockID), blockBytes)
 
-		blockDbAtomicBatch.Put([]byte("GT:"+epochFullID), gtBytes)
+		blockDbAtomicBatch.Put([]byte(constants.DBKeyPrefixGenerationThread+epochFullID), gtBytes)
 
 		if err := databases.BLOCKS.Write(blockDbAtomicBatch, nil); err != nil {
 			panic("Can't store GT and block candidate")
