@@ -229,7 +229,7 @@ func VerifyCoreAlfp(proof *structures.AggregatedLeaderFinalizationProof) bool {
 			return false
 		}
 
-		if !verifyCoreAfp(&proof.VotingStat.Afp, epochData, epochFullID, quorumMap, majority) {
+		if !verifyCoreAfp(&proof.VotingStat.Afp, epochFullID, quorumMap, majority) {
 			return false
 		}
 	}
@@ -257,7 +257,7 @@ func VerifyCoreAlfp(proof *structures.AggregatedLeaderFinalizationProof) bool {
 	return okSignatures >= majority
 }
 
-func verifyCoreAfp(afp *structures.AggregatedFinalizationProof, epochData *structures.CoreEpochData, epochFullID string, quorumMap map[string]bool, majority int) bool {
+func verifyCoreAfp(afp *structures.AggregatedFinalizationProof, epochFullID string, quorumMap map[string]bool, majority int) bool {
 
 	if afp == nil {
 		return false
