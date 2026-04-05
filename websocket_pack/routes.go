@@ -345,6 +345,27 @@ func applyCoreQuorumRotationWithCatchUp(attestation *structures.QuorumRotationAt
 	)
 }
 
+func AcceptEpochDataAttestation(parsedRequest WsAcceptEpochDataAttestationRequest, connection *gws.Conn) {
+	if !globals.FLOOD_PREVENTION_FLAG_FOR_ROUTES.Load() {
+		return
+	}
+
+	attestation := &parsedRequest.Attestation
+
+	dataToSign := "ANCHOR_EPOCH_ACK:" + strconv.Itoa(attestation.EpochId) + ":" + strconv.Itoa(attestation.NextEpochId) + ":" + attestation.EpochDataHash
+	sig := cryptography.GenerateSignature(globals.CONFIGURATION.PrivateKey, dataToSign)
+
+	resp := WsEpochDataAttestationAckResponse{
+		Status:    "OK",
+		Anchor:    globals.CONFIGURATION.PublicKey,
+		Signature: sig,
+	}
+
+	if jsonResp, err := json.Marshal(resp); err == nil {
+		connection.WriteMessage(gws.OpcodeText, jsonResp)
+	}
+}
+
 func processAnchorRotationProofsAsync(block block_pack.Block, epochHandler *structures.EpochDataHandler, blockId string) {
 
 	if len(block.ExtraData.AggregatedAnchorRotationProofs) == 0 || epochHandler == nil {

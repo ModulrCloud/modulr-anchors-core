@@ -48,8 +48,19 @@ type WsVotingStatResponse struct {
 }
 
 type WsAcceptQuorumRotationRequest struct {
-	Route       string                                `json:"route"`
+	Route       string                               `json:"route"`
 	Attestation structures.QuorumRotationAttestation `json:"attestation"`
+}
+
+type WsAcceptEpochDataAttestationRequest struct {
+	Route       string                          `json:"route"`
+	Attestation structures.EpochDataAttestation `json:"attestation"`
+}
+
+type WsEpochDataAttestationAckResponse struct {
+	Status    string `json:"status"`
+	Anchor    string `json:"anchor,omitempty"`
+	Signature string `json:"signature,omitempty"`
 }
 
 type WsStatusResponse struct {

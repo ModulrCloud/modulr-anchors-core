@@ -86,6 +86,17 @@ func (h *Handler) OnMessage(connection *gws.Conn, message *gws.Message) {
 
 		AcceptQuorumRotation(req, connection)
 
+	case "accept_epoch_data_attestation":
+
+		var req WsAcceptEpochDataAttestationRequest
+
+		if err := json.Unmarshal(message.Bytes(), &req); err != nil {
+			connection.WriteMessage(gws.OpcodeText, []byte(`{"error":"invalid_epoch_data_attestation_request"}`))
+			return
+		}
+
+		AcceptEpochDataAttestation(req, connection)
+
 	default:
 		connection.WriteMessage(gws.OpcodeText, []byte(`{"error":"unknown_type"}`))
 
