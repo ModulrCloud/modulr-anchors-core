@@ -352,6 +352,14 @@ func AcceptEpochDataAttestation(parsedRequest WsAcceptEpochDataAttestationReques
 
 	attestation := &parsedRequest.Attestation
 
+	if !utils.VerifyEpochDataAttestation(attestation) {
+		errResp := WsEpochDataAttestationAckResponse{Status: "ERROR"}
+		if data, err := json.Marshal(errResp); err == nil {
+			connection.WriteMessage(gws.OpcodeText, data)
+		}
+		return
+	}
+
 	dataToSign := "ANCHOR_EPOCH_ACK:" + strconv.Itoa(attestation.EpochId) + ":" + strconv.Itoa(attestation.NextEpochId) + ":" + attestation.EpochDataHash
 	sig := cryptography.GenerateSignature(globals.CONFIGURATION.PrivateKey, dataToSign)
 
