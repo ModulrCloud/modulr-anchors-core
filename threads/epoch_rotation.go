@@ -154,7 +154,7 @@ func syncActiveCoreEpochToLocalEpoch(targetEpochId int) {
 		return
 	}
 
-	applied := utils.CatchUpCoreEpochDataAttestations(targetEpochId, websocket_pack.GetEpochDataAttestationFromCorePod)
+	applied := utils.CatchUpCoreEpochDataAttestations(targetEpochId, websocket_pack.GetEpochDataAttestationFromPoD)
 	if applied > 0 {
 		utils.LogWithTime(
 			"Core quorum state synced to local anchors epoch "+strconv.Itoa(targetEpochId),

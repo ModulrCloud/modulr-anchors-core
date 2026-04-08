@@ -28,6 +28,15 @@ var (
 	ANCHORS_POD_CONNECTION       *websocket.Conn // Connection with PoD itself
 )
 
+type epochDataAttestationGetRequest struct {
+	Route   string `json:"route"`
+	EpochId int    `json:"epochId"`
+}
+
+type epochDataAttestationGetResponse struct {
+	Attestation *structures.EpochDataAttestation `json:"attestation"`
+}
+
 func SendWebsocketMessageToAnchorsPoD(msg []byte) ([]byte, error) {
 	for attempt := 1; attempt <= MAX_RETRIES; attempt++ {
 		ANCHORS_POD_ACCESS_MUTEX.Lock()
@@ -114,6 +123,30 @@ func SendBlockAndAfpToAnchorsPoD(block block_pack.Block, afp *structures.Aggrega
 		}
 		_ = SendToAnchorsPoDWithOutbox(id, reqBytes)
 	}
+}
+
+func GetEpochDataAttestationFromPoD(epochId int) *structures.EpochDataAttestation {
+	req := epochDataAttestationGetRequest{
+		Route:   "get_epoch_data_attestation_from_pod",
+		EpochId: epochId,
+	}
+
+	reqBytes, err := json.Marshal(req)
+	if err != nil {
+		return nil
+	}
+
+	respBytes, err := SendWebsocketMessageToAnchorsPoD(reqBytes)
+	if err != nil {
+		return nil
+	}
+
+	var resp epochDataAttestationGetResponse
+	if json.Unmarshal(respBytes, &resp) != nil {
+		return nil
+	}
+
+	return resp.Attestation
 }
 
 func openWebsocketConnectionWithAnchorsPoD() (*websocket.Conn, error) {
