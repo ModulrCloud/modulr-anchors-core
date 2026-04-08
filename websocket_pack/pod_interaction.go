@@ -153,12 +153,6 @@ func GetEpochDataAttestationFromPoD(epochId int) *structures.EpochDataAttestatio
 	return resp.Attestation
 }
 
-type recoveryCoreQuorumResponse struct {
-	PubKey    string          `json:"pubKey"`
-	Payload   json.RawMessage `json:"payload"`
-	Signature string          `json:"signature"`
-}
-
 func GetEpochDataAttestationFromAnchorsByHTTP(targetEpochId int) *structures.EpochDataAttestation {
 	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
 	registry := append([]string(nil), handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandler().AnchorsRegistry...)
@@ -194,7 +188,7 @@ func getEpochDataAttestationFromAnchorHTTP(anchorPubkey, anchorURL string, targe
 		return nil
 	}
 
-	var recoveryResp recoveryCoreQuorumResponse
+	var recoveryResp structures.RecoverySignedResponse
 	if json.NewDecoder(resp.Body).Decode(&recoveryResp) != nil {
 		return nil
 	}

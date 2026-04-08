@@ -6,16 +6,11 @@ import (
 
 	"github.com/modulrcloud/modulr-anchors-core/cryptography"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
+	"github.com/modulrcloud/modulr-anchors-core/structures"
 	"github.com/modulrcloud/modulr-anchors-core/utils"
 
 	"github.com/valyala/fasthttp"
 )
-
-type RecoverySignedResponse struct {
-	PubKey    string          `json:"pubKey"`
-	Payload   json.RawMessage `json:"payload"`
-	Signature string          `json:"signature"`
-}
 
 // GetCoreQuorumState returns the latest core quorum state (epoch, hash, quorum).
 // Used by external tooling for a quick overview.
@@ -96,7 +91,7 @@ func GetRecoveryCoreQuorum(ctx *fasthttp.RequestCtx) {
 
 	sig := cryptography.GenerateSignature(globals.CONFIGURATION.PrivateKey, string(payloadBytes))
 
-	resp := RecoverySignedResponse{
+	resp := structures.RecoverySignedResponse{
 		PubKey:    globals.CONFIGURATION.PublicKey,
 		Payload:   payloadBytes,
 		Signature: sig,
