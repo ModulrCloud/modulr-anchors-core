@@ -154,11 +154,21 @@ func syncActiveCoreEpochToLocalEpoch(targetEpochId int) {
 		return
 	}
 
-	applied := utils.CatchUpCoreEpochDataAttestations(targetEpochId, websocket_pack.GetEpochDataAttestationFromPoD)
+	applied := utils.CatchUpCoreEpochDataAttestations(targetEpochId, fetchCoreEpochDataAttestationForCatchUp)
 	if applied > 0 {
 		utils.LogWithTime(
 			"Core quorum state synced to local anchors epoch "+strconv.Itoa(targetEpochId),
 			utils.CYAN_COLOR,
 		)
 	}
+}
+
+func fetchCoreEpochDataAttestationForCatchUp(epochId int) *structures.EpochDataAttestation {
+	if attestation := websocket_pack.GetEpochDataAttestationFromPoD(epochId); attestation != nil {
+		return attestation
+	}
+
+	// PoD stores attestations by source epoch N, while anchors expose them by
+	// the introduced epoch N+1 via /recovery/core_quorum/{epoch}.
+	return websocket_pack.GetEpochDataAttestationFromAnchorsByHTTP(epochId + 1)
 }

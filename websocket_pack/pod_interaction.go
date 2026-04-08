@@ -3,13 +3,16 @@ package websocket_pack
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/modulrcloud/modulr-anchors-core/block_pack"
+	"github.com/modulrcloud/modulr-anchors-core/cryptography"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
+	"github.com/modulrcloud/modulr-anchors-core/handlers"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
 	"github.com/modulrcloud/modulr-anchors-core/utils"
 
@@ -26,6 +29,7 @@ var (
 	ANCHORS_POD_ACCESS_MUTEX     sync.Mutex      // Guards open/close & replace of PoD conn
 	ANCHORS_POD_READ_WRITE_MUTEX sync.Mutex      // Serializes request/response (write+read) on a single PoD conn
 	ANCHORS_POD_CONNECTION       *websocket.Conn // Connection with PoD itself
+	ANCHORS_HTTP_CLIENT          = &http.Client{Timeout: 2 * time.Second}
 )
 
 type epochDataAttestationGetRequest struct {
@@ -147,6 +151,76 @@ func GetEpochDataAttestationFromPoD(epochId int) *structures.EpochDataAttestatio
 	}
 
 	return resp.Attestation
+}
+
+type recoveryCoreQuorumResponse struct {
+	PubKey    string          `json:"pubKey"`
+	Payload   json.RawMessage `json:"payload"`
+	Signature string          `json:"signature"`
+}
+
+func GetEpochDataAttestationFromAnchorsByHTTP(targetEpochId int) *structures.EpochDataAttestation {
+	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
+	registry := append([]string(nil), handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandler().AnchorsRegistry...)
+	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
+
+	for _, anchorPubkey := range registry {
+		if anchorPubkey == globals.CONFIGURATION.PublicKey {
+			continue
+		}
+
+		anchorStorage := utils.GetAnchorFromApprovementThreadState(anchorPubkey)
+		if anchorStorage == nil || anchorStorage.AnchorUrl == "" {
+			continue
+		}
+
+		attestation := getEpochDataAttestationFromAnchorHTTP(anchorPubkey, anchorStorage.AnchorUrl, targetEpochId)
+		if attestation != nil {
+			return attestation
+		}
+	}
+
+	return nil
+}
+
+func getEpochDataAttestationFromAnchorHTTP(anchorPubkey, anchorURL string, targetEpochId int) *structures.EpochDataAttestation {
+	resp, err := ANCHORS_HTTP_CLIENT.Get(anchorURL + "/recovery/core_quorum/" + strconv.Itoa(targetEpochId))
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var recoveryResp recoveryCoreQuorumResponse
+	if json.NewDecoder(resp.Body).Decode(&recoveryResp) != nil {
+		return nil
+	}
+
+	if recoveryResp.PubKey != anchorPubkey || len(recoveryResp.Payload) == 0 || recoveryResp.Signature == "" {
+		return nil
+	}
+
+	if !cryptography.VerifySignature(string(recoveryResp.Payload), recoveryResp.PubKey, recoveryResp.Signature) {
+		return nil
+	}
+
+	var attestation structures.EpochDataAttestation
+	if json.Unmarshal(recoveryResp.Payload, &attestation) != nil {
+		return nil
+	}
+
+	if attestation.NextEpochId != targetEpochId {
+		return nil
+	}
+
+	if !utils.VerifyEpochDataAttestation(&attestation) {
+		return nil
+	}
+
+	return &attestation
 }
 
 func openWebsocketConnectionWithAnchorsPoD() (*websocket.Conn, error) {
