@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -8,12 +9,25 @@ import (
 	"github.com/modulrcloud/modulr-anchors-core/structures"
 )
 
+func ComputeEpochDataHash(data *structures.NextEpochData) string {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return ""
+	}
+	return Blake3(string(raw))
+}
+
 func VerifyEpochDataAttestation(attestation *structures.EpochDataAttestation) bool {
 	if attestation == nil || len(attestation.Proofs) == 0 || attestation.EpochDataHash == "" {
 		return false
 	}
 
 	if attestation.NextEpochId != attestation.EpochId+1 {
+		return false
+	}
+
+	recomputedHash := ComputeEpochDataHash(&attestation.EpochData)
+	if recomputedHash == "" || recomputedHash != attestation.EpochDataHash {
 		return false
 	}
 

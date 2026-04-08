@@ -34,7 +34,7 @@ func createRouter() fasthttp.RequestHandler {
 	// Core quorum state
 	r.GET("/core/quorum_state", routes.GetCoreQuorumState)
 
-	// Recovery: returns signed QuorumRotationAttestation for a given epoch
+	// Recovery: returns signed EpochDataAttestation for a given epoch
 	r.GET("/recovery/core_quorum/{epoch}", routes.GetRecoveryCoreQuorum)
 
 	return r.Handler

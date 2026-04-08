@@ -11,6 +11,7 @@ import (
 	"github.com/modulrcloud/modulr-anchors-core/handlers"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
 	"github.com/modulrcloud/modulr-anchors-core/utils"
+	"github.com/modulrcloud/modulr-anchors-core/websocket_pack"
 
 	"github.com/syndtr/goleveldb/leveldb"
 )
@@ -28,6 +29,8 @@ func EpochRotationThread() {
 		networkParams := handlerCopy.GetNetworkParams()
 
 		handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
+
+		syncActiveCoreEpochToLocalEpoch(currentEpoch.Id)
 
 		if currentEpoch.Hash == "" {
 			time.Sleep(200 * time.Millisecond)
@@ -139,4 +142,23 @@ func EpochRotationThread() {
 
 	}
 
+}
+
+func syncActiveCoreEpochToLocalEpoch(targetEpochId int) {
+	if targetEpochId < 0 {
+		return
+	}
+
+	state := utils.LoadCoreQuorumState()
+	if state == nil || state.LatestEpochId >= targetEpochId {
+		return
+	}
+
+	applied := utils.CatchUpCoreEpochDataAttestations(targetEpochId, websocket_pack.GetEpochDataAttestationFromCorePod)
+	if applied > 0 {
+		utils.LogWithTime(
+			"Core quorum state synced to local anchors epoch "+strconv.Itoa(targetEpochId),
+			utils.CYAN_COLOR,
+		)
+	}
 }

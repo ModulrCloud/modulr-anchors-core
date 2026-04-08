@@ -20,13 +20,13 @@ var (
 	CORE_POD_CONNECTION       *websocket.Conn
 )
 
-type corePodQuorumRotationGetRequest struct {
+type corePodEpochDataAttestationGetRequest struct {
 	Route   string `json:"route"`
 	EpochId int    `json:"epochId"`
 }
 
-type corePodQuorumRotationGetResponse struct {
-	Attestation *structures.QuorumRotationAttestation `json:"attestation"`
+type corePodEpochDataAttestationGetResponse struct {
+	Attestation *structures.EpochDataAttestation `json:"attestation"`
 }
 
 func sendWebsocketMessageToCorePod(msg []byte) ([]byte, error) {
@@ -91,9 +91,9 @@ func sendWebsocketMessageToCorePod(msg []byte) ([]byte, error) {
 	return nil, fmt.Errorf("failed to send message to core pod after %d attempts", MAX_RETRIES)
 }
 
-func GetQuorumRotationFromCorePod(epochId int) *structures.QuorumRotationAttestation {
-	req := corePodQuorumRotationGetRequest{
-		Route:   "get_quorum_rotation_attestation_from_pod",
+func GetEpochDataAttestationFromCorePod(epochId int) *structures.EpochDataAttestation {
+	req := corePodEpochDataAttestationGetRequest{
+		Route:   "get_epoch_data_attestation_from_pod",
 		EpochId: epochId,
 	}
 
@@ -107,7 +107,7 @@ func GetQuorumRotationFromCorePod(epochId int) *structures.QuorumRotationAttesta
 		return nil
 	}
 
-	var resp corePodQuorumRotationGetResponse
+	var resp corePodEpochDataAttestationGetResponse
 	if json.Unmarshal(respBytes, &resp) != nil {
 		return nil
 	}

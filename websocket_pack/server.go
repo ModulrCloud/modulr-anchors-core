@@ -75,17 +75,6 @@ func (h *Handler) OnMessage(connection *gws.Conn, message *gws.Message) {
 
 		GetVotingStat(req, connection)
 
-	case "accept_quorum_rotation":
-
-		var req WsAcceptQuorumRotationRequest
-
-		if err := json.Unmarshal(message.Bytes(), &req); err != nil {
-			connection.WriteMessage(gws.OpcodeText, []byte(`{"error":"invalid_quorum_rotation_request"}`))
-			return
-		}
-
-		AcceptQuorumRotation(req, connection)
-
 	case "accept_epoch_data_attestation":
 
 		var req WsAcceptEpochDataAttestationRequest

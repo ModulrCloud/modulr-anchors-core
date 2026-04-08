@@ -47,11 +47,6 @@ type WsVotingStatResponse struct {
 	Error      string                `json:"error,omitempty"`
 }
 
-type WsAcceptQuorumRotationRequest struct {
-	Route       string                               `json:"route"`
-	Attestation structures.QuorumRotationAttestation `json:"attestation"`
-}
-
 type WsAcceptEpochDataAttestationRequest struct {
 	Route       string                          `json:"route"`
 	Attestation structures.EpochDataAttestation `json:"attestation"`

@@ -48,12 +48,12 @@ func GetCoreQuorumState(ctx *fasthttp.RequestCtx) {
 	ctx.Write(respBytes)
 }
 
-// GetRecoveryCoreQuorum returns the QuorumRotationAttestation for the requested epoch,
-// signed by this anchor's private key. Used by the recovery procedure to collect
-// 2/3N+1 anchor responses and determine the modulr-core quorum for a given epoch.
+// GetRecoveryCoreQuorum returns the EpochDataAttestation that introduced the
+// requested modulr-core epoch, signed by this anchor's private key. Used by the
+// recovery procedure to collect anchor responses and determine the modulr-core
+// quorum for a given epoch.
 //
-// Query param: epoch (int) — the epoch for which to return quorum rotation data.
-// If omitted, returns data for the latest known epoch.
+// Path param: epoch (int) — the epoch for which to return core epoch data.
 func GetRecoveryCoreQuorum(ctx *fasthttp.RequestCtx) {
 	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
 	ctx.SetContentType("application/json")
@@ -80,10 +80,10 @@ func GetRecoveryCoreQuorum(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	attestation := utils.LoadQuorumRotationAttestation(epochId)
+	attestation := utils.LoadEpochDataAttestation(epochId)
 	if attestation == nil {
 		ctx.SetStatusCode(fasthttp.StatusNotFound)
-		ctx.Write([]byte(`{"err": "No quorum rotation attestation found for this epoch"}`))
+		ctx.Write([]byte(`{"err": "No epoch data attestation found for this epoch"}`))
 		return
 	}
 

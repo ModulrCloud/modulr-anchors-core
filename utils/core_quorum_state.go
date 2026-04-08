@@ -3,7 +3,6 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -71,30 +70,30 @@ func DeleteCoreEpochData(epochId int) {
 	_ = databases.EPOCH_DATA.Delete(coreEpochDataKey(epochId), nil)
 }
 
-func coreQuorumRotationAttestationKey(epochId int) []byte {
-	return []byte(fmt.Sprintf("CORE_QR_ATTESTATION:%d", epochId))
+func coreEpochDataAttestationKey(epochId int) []byte {
+	return []byte(fmt.Sprintf("CORE_EPOCH_DATA_ATTESTATION:%d", epochId))
 }
 
-func PersistQuorumRotationAttestation(attestation *structures.QuorumRotationAttestation) {
+func PersistEpochDataAttestation(attestation *structures.EpochDataAttestation) {
 	if raw, err := json.Marshal(attestation); err == nil {
-		_ = databases.EPOCH_DATA.Put(coreQuorumRotationAttestationKey(attestation.NextEpochId), raw, nil)
+		_ = databases.EPOCH_DATA.Put(coreEpochDataAttestationKey(attestation.NextEpochId), raw, nil)
 	}
 }
 
-func LoadQuorumRotationAttestation(epochId int) *structures.QuorumRotationAttestation {
-	raw, err := databases.EPOCH_DATA.Get(coreQuorumRotationAttestationKey(epochId), nil)
+func LoadEpochDataAttestation(epochId int) *structures.EpochDataAttestation {
+	raw, err := databases.EPOCH_DATA.Get(coreEpochDataAttestationKey(epochId), nil)
 	if err != nil || len(raw) == 0 {
 		return nil
 	}
-	var attestation structures.QuorumRotationAttestation
+	var attestation structures.EpochDataAttestation
 	if json.Unmarshal(raw, &attestation) != nil {
 		return nil
 	}
 	return &attestation
 }
 
-func DeleteQuorumRotationAttestation(epochId int) {
-	_ = databases.EPOCH_DATA.Delete(coreQuorumRotationAttestationKey(epochId), nil)
+func DeleteEpochDataAttestation(epochId int) {
+	_ = databases.EPOCH_DATA.Delete(coreEpochDataAttestationKey(epochId), nil)
 }
 
 func InitCoreQuorumStateFromGenesis() *structures.CoreQuorumState {
@@ -125,11 +124,10 @@ func InitCoreQuorumStateFromGenesis() *structures.CoreQuorumState {
 	return state
 }
 
-// ApplyCoreQuorumRotation verifies and applies a quorum rotation, storing the new
-// epoch data and advancing the latest epoch pointer. Returns true on success.
-// If there is a gap between the current state and the attestation, it returns false
-// (use CatchUpCoreQuorumRotations to fill the gap first).
-func ApplyCoreQuorumRotation(attestation *structures.QuorumRotationAttestation) bool {
+// ApplyCoreEpochDataAttestation verifies and applies a core epoch-data attestation,
+// storing the new epoch data and advancing the active latest epoch pointer.
+// Returns true on success.
+func ApplyCoreEpochDataAttestation(attestation *structures.EpochDataAttestation) bool {
 
 	state := LoadCoreQuorumState()
 	if state == nil {
@@ -145,18 +143,18 @@ func ApplyCoreQuorumRotation(attestation *structures.QuorumRotationAttestation) 
 		return false
 	}
 
-	if !VerifyQuorumRotationAttestation(attestation, currentEpochData.Quorum) {
+	if !VerifyEpochDataAttestation(attestation) {
 		return false
 	}
 
 	newEpochData := &structures.CoreEpochData{
 		EpochId:   attestation.NextEpochId,
-		EpochHash: attestation.NextEpochHash,
-		Quorum:    attestation.NextQuorum,
+		EpochHash: attestation.EpochData.NextEpochHash,
+		Quorum:    attestation.EpochData.NextEpochQuorum,
 	}
 
 	PersistCoreEpochData(newEpochData)
-	PersistQuorumRotationAttestation(attestation)
+	PersistEpochDataAttestation(attestation)
 
 	state.LatestEpochId = attestation.NextEpochId
 	PersistCoreQuorumState(state)
@@ -186,7 +184,7 @@ func cleanupOldCoreEpochData(latestEpochId int) {
 			break
 		}
 		DeleteCoreEpochData(epochId)
-		DeleteQuorumRotationAttestation(epochId)
+		DeleteEpochDataAttestation(epochId)
 	}
 }
 
@@ -280,49 +278,11 @@ func verifyCoreAfp(afp *structures.AggregatedFinalizationProof, epochFullID stri
 	return okSignatures >= majority
 }
 
-func VerifyQuorumRotationAttestation(attestation *structures.QuorumRotationAttestation, currentQuorum []string) bool {
-
-	if attestation == nil || len(currentQuorum) == 0 {
-		return false
-	}
-
-	majority := (2*len(currentQuorum))/3 + 1
-	if majority > len(currentQuorum) {
-		majority = len(currentQuorum)
-	}
-
-	quorumMap := make(map[string]bool, len(currentQuorum))
-	for _, pk := range currentQuorum {
-		quorumMap[pk] = true
-	}
-
-	sortedNextQuorum := make([]string, len(attestation.NextQuorum))
-	copy(sortedNextQuorum, attestation.NextQuorum)
-	sort.Strings(sortedNextQuorum)
-
-	dataToVerify := "QUORUM_ROTATION:" + strconv.Itoa(attestation.EpochId) + ":" + strconv.Itoa(attestation.NextEpochId) + ":" + attestation.NextEpochHash + ":" + strings.Join(sortedNextQuorum, ",")
-
-	okSignatures := 0
-	seen := make(map[string]bool)
-
-	for pubKey, signature := range attestation.Proofs {
-		if quorumMap[pubKey] && !seen[pubKey] {
-			if cryptography.VerifySignature(dataToVerify, pubKey, signature) {
-				seen[pubKey] = true
-				okSignatures++
-			}
-		}
-	}
-
-	return okSignatures >= majority
-}
-
-// CatchUpCoreQuorumRotations fills the gap between the anchor's current core epoch
-// and the target epoch by sequentially fetching and applying quorum rotations from
-// the core PoD. The fetchFn parameter is the function that retrieves a
-// QuorumRotationAttestation for a given epoch ID from the core PoD.
+// CatchUpCoreEpochDataAttestations fills the gap between the active core epoch
+// and the target epoch by sequentially loading locally stored attestations first
+// and then optionally fetching missing ones via fetchFn.
 // Returns the number of epochs successfully applied.
-func CatchUpCoreQuorumRotations(targetEpochId int, fetchFn func(epochId int) *structures.QuorumRotationAttestation) int {
+func CatchUpCoreEpochDataAttestations(targetEpochId int, fetchFn func(epochId int) *structures.EpochDataAttestation) int {
 
 	applied := 0
 
@@ -336,18 +296,26 @@ func CatchUpCoreQuorumRotations(targetEpochId int, fetchFn func(epochId int) *st
 			break
 		}
 
-		attestation := fetchFn(state.LatestEpochId)
+		nextEpochId := state.LatestEpochId + 1
+
+		attestation := LoadEpochDataAttestation(nextEpochId)
+		if attestation == nil && fetchFn != nil {
+			attestation = fetchFn(state.LatestEpochId)
+			if attestation != nil {
+				PersistEpochDataAttestation(attestation)
+			}
+		}
 		if attestation == nil {
 			LogWithTime(
-				fmt.Sprintf("Core quorum catch-up: failed to fetch rotation for epoch %d from core PoD", state.LatestEpochId),
+				fmt.Sprintf("Core quorum catch-up: missing epoch data attestation for epoch %d -> %d", state.LatestEpochId, nextEpochId),
 				YELLOW_COLOR,
 			)
 			break
 		}
 
-		if !ApplyCoreQuorumRotation(attestation) {
+		if !ApplyCoreEpochDataAttestation(attestation) {
 			LogWithTime(
-				fmt.Sprintf("Core quorum catch-up: failed to apply rotation for epoch %d -> %d", attestation.EpochId, attestation.NextEpochId),
+				fmt.Sprintf("Core quorum catch-up: failed to apply epoch data attestation for epoch %d -> %d", attestation.EpochId, attestation.NextEpochId),
 				YELLOW_COLOR,
 			)
 			break
@@ -355,7 +323,7 @@ func CatchUpCoreQuorumRotations(targetEpochId int, fetchFn func(epochId int) *st
 
 		applied++
 		LogWithTime(
-			fmt.Sprintf("Core quorum catch-up: applied rotation epoch %d -> %d", attestation.EpochId, attestation.NextEpochId),
+			fmt.Sprintf("Core quorum catch-up: applied epoch data attestation %d -> %d", attestation.EpochId, attestation.NextEpochId),
 			CYAN_COLOR,
 		)
 	}

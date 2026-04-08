@@ -5,7 +5,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/modulrcloud/modulr-anchors-core/block_pack"
 	"github.com/modulrcloud/modulr-anchors-core/cryptography"
@@ -17,8 +16,6 @@ import (
 
 	"github.com/lxzan/gws"
 )
-
-var coreQuorumRotationMutex sync.Mutex
 
 func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *gws.Conn) {
 
@@ -304,47 +301,6 @@ func GetVotingStat(parsedRequest WsVotingStatRequest, connection *gws.Conn) {
 	}
 }
 
-func AcceptQuorumRotation(parsedRequest WsAcceptQuorumRotationRequest, connection *gws.Conn) {
-
-	if !globals.FLOOD_PREVENTION_FLAG_FOR_ROUTES.Load() {
-		return
-	}
-
-	attestation := parsedRequest.Attestation
-
-	go applyCoreQuorumRotationWithCatchUp(&attestation)
-}
-
-func applyCoreQuorumRotationWithCatchUp(attestation *structures.QuorumRotationAttestation) {
-
-	coreQuorumRotationMutex.Lock()
-	defer coreQuorumRotationMutex.Unlock()
-
-	state := utils.LoadCoreQuorumState()
-	if state == nil {
-		return
-	}
-
-	if attestation.EpochId > state.LatestEpochId {
-		catchedUp := utils.CatchUpCoreQuorumRotations(attestation.EpochId, GetQuorumRotationFromCorePod)
-		if catchedUp > 0 {
-			utils.LogWithTime(
-				"Core quorum catch-up: filled "+strconv.Itoa(catchedUp)+" missing epoch(s) before applying rotation",
-				utils.CYAN_COLOR,
-			)
-		}
-	}
-
-	if !utils.ApplyCoreQuorumRotation(attestation) {
-		return
-	}
-
-	utils.LogWithTime(
-		"Core quorum rotation applied: epoch "+strconv.Itoa(attestation.EpochId)+" -> "+strconv.Itoa(attestation.NextEpochId),
-		utils.CYAN_COLOR,
-	)
-}
-
 func AcceptEpochDataAttestation(parsedRequest WsAcceptEpochDataAttestationRequest, connection *gws.Conn) {
 	if !globals.FLOOD_PREVENTION_FLAG_FOR_ROUTES.Load() {
 		return
@@ -359,6 +315,8 @@ func AcceptEpochDataAttestation(parsedRequest WsAcceptEpochDataAttestationReques
 		}
 		return
 	}
+
+	utils.PersistEpochDataAttestation(attestation)
 
 	dataToSign := "ANCHOR_EPOCH_ACK:" + strconv.Itoa(attestation.EpochId) + ":" + strconv.Itoa(attestation.NextEpochId) + ":" + attestation.EpochDataHash
 	sig := cryptography.GenerateSignature(globals.CONFIGURATION.PrivateKey, dataToSign)
