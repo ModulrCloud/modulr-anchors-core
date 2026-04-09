@@ -75,16 +75,16 @@ func (h *Handler) OnMessage(connection *gws.Conn, message *gws.Message) {
 
 		GetVotingStat(req, connection)
 
-	case "accept_epoch_data_attestation":
+	case "accept_aggregated_epoch_rotation_proof":
 
 		var req WsAcceptEpochDataAttestationRequest
 
 		if err := json.Unmarshal(message.Bytes(), &req); err != nil {
-			connection.WriteMessage(gws.OpcodeText, []byte(`{"error":"invalid_epoch_data_attestation_request"}`))
+			connection.WriteMessage(gws.OpcodeText, []byte(`{"error":"invalid_epoch_rotation_proof_request"}`))
 			return
 		}
 
-		AcceptEpochDataAttestation(req, connection)
+		AcceptAggregatedEpochRotationProof(req, connection)
 
 	default:
 		connection.WriteMessage(gws.OpcodeText, []byte(`{"error":"unknown_type"}`))

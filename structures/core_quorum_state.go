@@ -20,7 +20,7 @@ type NextEpochData struct {
 	DelayedTransactions         []map[string]string `json:"delayedTransactions"`
 }
 
-type EpochDataAttestation struct {
+type AggregatedEpochRotationProof struct {
 	EpochId       int               `json:"epochId"`
 	NextEpochId   int               `json:"nextEpochId"`
 	EpochData     NextEpochData     `json:"epochData"`
@@ -28,8 +28,8 @@ type EpochDataAttestation struct {
 	Proofs        map[string]string `json:"proofs"`
 }
 
-func (eda *EpochDataAttestation) UnmarshalJSON(data []byte) error {
-	type alias EpochDataAttestation
+func (eda *AggregatedEpochRotationProof) UnmarshalJSON(data []byte) error {
+	type alias AggregatedEpochRotationProof
 
 	var aux alias
 
@@ -41,7 +41,7 @@ func (eda *EpochDataAttestation) UnmarshalJSON(data []byte) error {
 		aux.Proofs = make(map[string]string)
 	}
 
-	*eda = EpochDataAttestation(aux)
+	*eda = AggregatedEpochRotationProof(aux)
 
 	return nil
 }

@@ -38,7 +38,7 @@ type epochDataAttestationGetRequest struct {
 }
 
 type epochDataAttestationGetResponse struct {
-	Attestation *structures.EpochDataAttestation `json:"attestation"`
+	Attestation *structures.AggregatedEpochRotationProof `json:"attestation"`
 }
 
 func SendWebsocketMessageToAnchorsPoD(msg []byte) ([]byte, error) {
@@ -129,7 +129,7 @@ func SendBlockAndAfpToAnchorsPoD(block block_pack.Block, afp *structures.Aggrega
 	}
 }
 
-func GetEpochDataAttestationFromPoD(epochId int) *structures.EpochDataAttestation {
+func GetEpochDataAttestationFromPoD(epochId int) *structures.AggregatedEpochRotationProof {
 	req := epochDataAttestationGetRequest{
 		Route:   "get_epoch_data_attestation_from_pod",
 		EpochId: epochId,
@@ -153,7 +153,7 @@ func GetEpochDataAttestationFromPoD(epochId int) *structures.EpochDataAttestatio
 	return resp.Attestation
 }
 
-func GetEpochDataAttestationFromAnchorsByHTTP(targetEpochId int) *structures.EpochDataAttestation {
+func GetEpochDataAttestationFromAnchorsByHTTP(targetEpochId int) *structures.AggregatedEpochRotationProof {
 	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
 	registry := append([]string(nil), handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandler().AnchorsRegistry...)
 	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
@@ -168,16 +168,16 @@ func GetEpochDataAttestationFromAnchorsByHTTP(targetEpochId int) *structures.Epo
 			continue
 		}
 
-		attestation := getEpochDataAttestationFromAnchorHTTP(anchorPubkey, anchorStorage.AnchorUrl, targetEpochId)
-		if attestation != nil {
-			return attestation
+		proof := getEpochDataAttestationFromAnchorHTTP(anchorPubkey, anchorStorage.AnchorUrl, targetEpochId)
+		if proof != nil {
+			return proof
 		}
 	}
 
 	return nil
 }
 
-func getEpochDataAttestationFromAnchorHTTP(anchorPubkey, anchorURL string, targetEpochId int) *structures.EpochDataAttestation {
+func getEpochDataAttestationFromAnchorHTTP(anchorPubkey, anchorURL string, targetEpochId int) *structures.AggregatedEpochRotationProof {
 	resp, err := ANCHORS_HTTP_CLIENT.Get(anchorURL + "/recovery/core_quorum/" + strconv.Itoa(targetEpochId))
 	if err != nil {
 		return nil
@@ -201,20 +201,20 @@ func getEpochDataAttestationFromAnchorHTTP(anchorPubkey, anchorURL string, targe
 		return nil
 	}
 
-	var attestation structures.EpochDataAttestation
-	if json.Unmarshal(recoveryResp.Payload, &attestation) != nil {
+	var proof structures.AggregatedEpochRotationProof
+	if json.Unmarshal(recoveryResp.Payload, &proof) != nil {
 		return nil
 	}
 
-	if attestation.NextEpochId != targetEpochId {
+	if proof.NextEpochId != targetEpochId {
 		return nil
 	}
 
-	if !utils.VerifyEpochDataAttestation(&attestation) {
+	if !utils.VerifyEpochDataAttestation(&proof) {
 		return nil
 	}
 
-	return &attestation
+	return &proof
 }
 
 func openWebsocketConnectionWithAnchorsPoD() (*websocket.Conn, error) {

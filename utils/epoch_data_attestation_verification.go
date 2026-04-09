@@ -17,21 +17,21 @@ func ComputeEpochDataHash(data *structures.NextEpochData) string {
 	return Blake3(string(raw))
 }
 
-func VerifyEpochDataAttestation(attestation *structures.EpochDataAttestation) bool {
-	if attestation == nil || len(attestation.Proofs) == 0 || attestation.EpochDataHash == "" {
+func VerifyEpochDataAttestation(proof *structures.AggregatedEpochRotationProof) bool {
+	if proof == nil || len(proof.Proofs) == 0 || proof.EpochDataHash == "" {
 		return false
 	}
 
-	if attestation.NextEpochId != attestation.EpochId+1 {
+	if proof.NextEpochId != proof.EpochId+1 {
 		return false
 	}
 
-	recomputedHash := ComputeEpochDataHash(&attestation.EpochData)
-	if recomputedHash == "" || recomputedHash != attestation.EpochDataHash {
+	recomputedHash := ComputeEpochDataHash(&proof.EpochData)
+	if recomputedHash == "" || recomputedHash != proof.EpochDataHash {
 		return false
 	}
 
-	epochData := LoadCoreEpochData(attestation.EpochId)
+	epochData := LoadCoreEpochData(proof.EpochId)
 	if epochData == nil || len(epochData.Quorum) == 0 {
 		return false
 	}
@@ -47,16 +47,16 @@ func VerifyEpochDataAttestation(attestation *structures.EpochDataAttestation) bo
 	}
 
 	dataToVerify := strings.Join([]string{
-		"EPOCH_DATA_ATTESTATION",
-		strconv.Itoa(attestation.EpochId),
-		strconv.Itoa(attestation.NextEpochId),
-		attestation.EpochDataHash,
+		"EPOCH_ROTATION_PROOF",
+		strconv.Itoa(proof.EpochId),
+		strconv.Itoa(proof.NextEpochId),
+		proof.EpochDataHash,
 	}, ":")
 
 	okSignatures := 0
 	seen := make(map[string]bool)
 
-	for pubKey, signature := range attestation.Proofs {
+	for pubKey, signature := range proof.Proofs {
 		if quorumMap[pubKey] && !seen[pubKey] {
 			if cryptography.VerifySignature(dataToVerify, pubKey, signature) {
 				seen[pubKey] = true

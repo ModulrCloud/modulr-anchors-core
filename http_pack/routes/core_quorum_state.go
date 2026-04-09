@@ -43,7 +43,7 @@ func GetCoreQuorumState(ctx *fasthttp.RequestCtx) {
 	ctx.Write(respBytes)
 }
 
-// GetRecoveryCoreQuorum returns the EpochDataAttestation that introduced the
+// GetRecoveryCoreQuorum returns the AggregatedEpochRotationProof that introduced the
 // requested modulr-core epoch, signed by this anchor's private key. Used by the
 // recovery procedure to collect anchor responses and determine the modulr-core
 // quorum for a given epoch.
@@ -75,17 +75,17 @@ func GetRecoveryCoreQuorum(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	attestation := utils.LoadEpochDataAttestation(epochId)
-	if attestation == nil {
+	proof := utils.LoadAggregatedEpochRotationProof(epochId)
+	if proof == nil {
 		ctx.SetStatusCode(fasthttp.StatusNotFound)
-		ctx.Write([]byte(`{"err": "No epoch data attestation found for this epoch"}`))
+		ctx.Write([]byte(`{"err": "No epoch rotation proof found for this epoch"}`))
 		return
 	}
 
-	payloadBytes, err := json.Marshal(attestation)
+	payloadBytes, err := json.Marshal(proof)
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write([]byte(`{"err": "Failed to marshal attestation"}`))
+		ctx.Write([]byte(`{"err": "Failed to marshal proof"}`))
 		return
 	}
 

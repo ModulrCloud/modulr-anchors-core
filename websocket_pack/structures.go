@@ -48,8 +48,8 @@ type WsVotingStatResponse struct {
 }
 
 type WsAcceptEpochDataAttestationRequest struct {
-	Route       string                          `json:"route"`
-	Attestation structures.EpochDataAttestation `json:"attestation"`
+	Route       string                                  `json:"route"`
+	Attestation structures.AggregatedEpochRotationProof `json:"attestation"`
 }
 
 type WsEpochDataAttestationAckResponse struct {

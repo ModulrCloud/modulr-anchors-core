@@ -163,9 +163,9 @@ func syncActiveCoreEpochToLocalEpoch(targetEpochId int) {
 	}
 }
 
-func fetchCoreEpochDataAttestationForCatchUp(epochId int) *structures.EpochDataAttestation {
-	if attestation := websocket_pack.GetEpochDataAttestationFromPoD(epochId); attestation != nil {
-		return attestation
+func fetchCoreEpochDataAttestationForCatchUp(epochId int) *structures.AggregatedEpochRotationProof {
+	if proof := websocket_pack.GetEpochDataAttestationFromPoD(epochId); proof != nil {
+		return proof
 	}
 
 	// PoD stores attestations by source epoch N, while anchors expose them by

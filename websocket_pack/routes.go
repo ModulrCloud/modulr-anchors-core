@@ -301,14 +301,14 @@ func GetVotingStat(parsedRequest WsVotingStatRequest, connection *gws.Conn) {
 	}
 }
 
-func AcceptEpochDataAttestation(parsedRequest WsAcceptEpochDataAttestationRequest, connection *gws.Conn) {
+func AcceptAggregatedEpochRotationProof(parsedRequest WsAcceptEpochDataAttestationRequest, connection *gws.Conn) {
 	if !globals.FLOOD_PREVENTION_FLAG_FOR_ROUTES.Load() {
 		return
 	}
 
-	attestation := &parsedRequest.Attestation
+	proof := &parsedRequest.Attestation
 
-	if !utils.VerifyEpochDataAttestation(attestation) {
+	if !utils.VerifyEpochDataAttestation(proof) {
 		errResp := WsEpochDataAttestationAckResponse{Status: "ERROR"}
 		if data, err := json.Marshal(errResp); err == nil {
 			connection.WriteMessage(gws.OpcodeText, data)
@@ -316,9 +316,9 @@ func AcceptEpochDataAttestation(parsedRequest WsAcceptEpochDataAttestationReques
 		return
 	}
 
-	utils.PersistEpochDataAttestation(attestation)
+	utils.PersistAggregatedEpochRotationProof(proof)
 
-	dataToSign := "ANCHOR_EPOCH_ACK:" + strconv.Itoa(attestation.EpochId) + ":" + strconv.Itoa(attestation.NextEpochId) + ":" + attestation.EpochDataHash
+	dataToSign := "ANCHOR_EPOCH_ACK_PROOF:" + strconv.Itoa(proof.EpochId) + ":" + strconv.Itoa(proof.NextEpochId) + ":" + proof.EpochDataHash
 	sig := cryptography.GenerateSignature(globals.CONFIGURATION.PrivateKey, dataToSign)
 
 	resp := WsEpochDataAttestationAckResponse{
