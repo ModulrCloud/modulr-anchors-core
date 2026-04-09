@@ -70,18 +70,18 @@ func DeleteCoreEpochData(epochId int) {
 	_ = databases.EPOCH_DATA.Delete(coreEpochDataKey(epochId), nil)
 }
 
-func coreEpochDataAttestationKey(epochId int) []byte {
-	return []byte(fmt.Sprintf("CORE_EPOCH_DATA_ATTESTATION:%d", epochId))
+func coreAggregatedEpochRotationProofKey(epochId int) []byte {
+	return []byte(fmt.Sprintf("CORE_EPOCH_ROTATION_PROOF:%d", epochId))
 }
 
 func PersistAggregatedEpochRotationProof(proof *structures.AggregatedEpochRotationProof) {
 	if raw, err := json.Marshal(proof); err == nil {
-		_ = databases.EPOCH_DATA.Put(coreEpochDataAttestationKey(proof.NextEpochId), raw, nil)
+		_ = databases.EPOCH_DATA.Put(coreAggregatedEpochRotationProofKey(proof.NextEpochId), raw, nil)
 	}
 }
 
 func LoadAggregatedEpochRotationProof(epochId int) *structures.AggregatedEpochRotationProof {
-	raw, err := databases.EPOCH_DATA.Get(coreEpochDataAttestationKey(epochId), nil)
+	raw, err := databases.EPOCH_DATA.Get(coreAggregatedEpochRotationProofKey(epochId), nil)
 	if err != nil || len(raw) == 0 {
 		return nil
 	}
@@ -93,7 +93,7 @@ func LoadAggregatedEpochRotationProof(epochId int) *structures.AggregatedEpochRo
 }
 
 func DeleteAggregatedEpochRotationProof(epochId int) {
-	_ = databases.EPOCH_DATA.Delete(coreEpochDataAttestationKey(epochId), nil)
+	_ = databases.EPOCH_DATA.Delete(coreAggregatedEpochRotationProofKey(epochId), nil)
 }
 
 func InitCoreQuorumStateFromGenesis() *structures.CoreQuorumState {
