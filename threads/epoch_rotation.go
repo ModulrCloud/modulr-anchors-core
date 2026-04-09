@@ -154,7 +154,7 @@ func syncActiveCoreEpochToLocalEpoch(targetEpochId int) {
 		return
 	}
 
-	applied := utils.CatchUpCoreEpochDataAttestations(targetEpochId, fetchCoreEpochDataAttestationForCatchUp)
+	applied := utils.CatchUpCoreEpochRotationProofs(targetEpochId, fetchCoreAggregatedEpochRotationProofForCatchUp)
 	if applied > 0 {
 		utils.LogWithTime(
 			"Core quorum state synced to local anchors epoch "+strconv.Itoa(targetEpochId),
@@ -163,12 +163,12 @@ func syncActiveCoreEpochToLocalEpoch(targetEpochId int) {
 	}
 }
 
-func fetchCoreEpochDataAttestationForCatchUp(epochId int) *structures.AggregatedEpochRotationProof {
-	if proof := websocket_pack.GetEpochDataAttestationFromPoD(epochId); proof != nil {
+func fetchCoreAggregatedEpochRotationProofForCatchUp(epochId int) *structures.AggregatedEpochRotationProof {
+	if proof := websocket_pack.GetAggregatedEpochRotationProofFromPoD(epochId); proof != nil {
 		return proof
 	}
 
 	// PoD stores attestations by source epoch N, while anchors expose them by
 	// the introduced epoch N+1 via /recovery/core_quorum/{epoch}.
-	return websocket_pack.GetEpochDataAttestationFromAnchorsByHTTP(epochId + 1)
+	return websocket_pack.GetAggregatedEpochRotationProofFromAnchorsByHTTP(epochId + 1)
 }

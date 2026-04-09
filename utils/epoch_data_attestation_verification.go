@@ -17,7 +17,7 @@ func ComputeEpochDataHash(data *structures.NextEpochData) string {
 	return Blake3(string(raw))
 }
 
-func VerifyEpochDataAttestation(proof *structures.AggregatedEpochRotationProof) bool {
+func VerifyAggregatedEpochRotationProof(proof *structures.AggregatedEpochRotationProof) bool {
 	if proof == nil || len(proof.Proofs) == 0 || proof.EpochDataHash == "" {
 		return false
 	}

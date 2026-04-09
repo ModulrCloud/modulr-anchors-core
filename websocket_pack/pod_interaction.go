@@ -32,13 +32,13 @@ var (
 	ANCHORS_HTTP_CLIENT          = &http.Client{Timeout: 2 * time.Second}
 )
 
-type epochDataAttestationGetRequest struct {
+type aggregatedEpochRotationProofGetRequest struct {
 	Route   string `json:"route"`
 	EpochId int    `json:"epochId"`
 }
 
-type epochDataAttestationGetResponse struct {
-	Attestation *structures.AggregatedEpochRotationProof `json:"attestation"`
+type aggregatedEpochRotationProofGetResponse struct {
+	Proof *structures.AggregatedEpochRotationProof `json:"proof"`
 }
 
 func SendWebsocketMessageToAnchorsPoD(msg []byte) ([]byte, error) {
@@ -129,9 +129,9 @@ func SendBlockAndAfpToAnchorsPoD(block block_pack.Block, afp *structures.Aggrega
 	}
 }
 
-func GetEpochDataAttestationFromPoD(epochId int) *structures.AggregatedEpochRotationProof {
-	req := epochDataAttestationGetRequest{
-		Route:   "get_epoch_data_attestation_from_pod",
+func GetAggregatedEpochRotationProofFromPoD(epochId int) *structures.AggregatedEpochRotationProof {
+	req := aggregatedEpochRotationProofGetRequest{
+		Route:   "get_aggregated_epoch_rotation_proof_from_pod",
 		EpochId: epochId,
 	}
 
@@ -145,15 +145,15 @@ func GetEpochDataAttestationFromPoD(epochId int) *structures.AggregatedEpochRota
 		return nil
 	}
 
-	var resp epochDataAttestationGetResponse
+	var resp aggregatedEpochRotationProofGetResponse
 	if json.Unmarshal(respBytes, &resp) != nil {
 		return nil
 	}
 
-	return resp.Attestation
+	return resp.Proof
 }
 
-func GetEpochDataAttestationFromAnchorsByHTTP(targetEpochId int) *structures.AggregatedEpochRotationProof {
+func GetAggregatedEpochRotationProofFromAnchorsByHTTP(targetEpochId int) *structures.AggregatedEpochRotationProof {
 	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
 	registry := append([]string(nil), handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandler().AnchorsRegistry...)
 	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
@@ -168,7 +168,7 @@ func GetEpochDataAttestationFromAnchorsByHTTP(targetEpochId int) *structures.Agg
 			continue
 		}
 
-		proof := getEpochDataAttestationFromAnchorHTTP(anchorPubkey, anchorStorage.AnchorUrl, targetEpochId)
+		proof := getAggregatedEpochRotationProofFromAnchorHTTP(anchorPubkey, anchorStorage.AnchorUrl, targetEpochId)
 		if proof != nil {
 			return proof
 		}
@@ -177,7 +177,7 @@ func GetEpochDataAttestationFromAnchorsByHTTP(targetEpochId int) *structures.Agg
 	return nil
 }
 
-func getEpochDataAttestationFromAnchorHTTP(anchorPubkey, anchorURL string, targetEpochId int) *structures.AggregatedEpochRotationProof {
+func getAggregatedEpochRotationProofFromAnchorHTTP(anchorPubkey, anchorURL string, targetEpochId int) *structures.AggregatedEpochRotationProof {
 	resp, err := ANCHORS_HTTP_CLIENT.Get(anchorURL + "/recovery/core_quorum/" + strconv.Itoa(targetEpochId))
 	if err != nil {
 		return nil
@@ -210,7 +210,7 @@ func getEpochDataAttestationFromAnchorHTTP(anchorPubkey, anchorURL string, targe
 		return nil
 	}
 
-	if !utils.VerifyEpochDataAttestation(&proof) {
+	if !utils.VerifyAggregatedEpochRotationProof(&proof) {
 		return nil
 	}
 

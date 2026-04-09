@@ -143,7 +143,7 @@ func ApplyCoreAggregatedEpochRotationProof(proof *structures.AggregatedEpochRota
 		return false
 	}
 
-	if !VerifyEpochDataAttestation(proof) {
+	if !VerifyAggregatedEpochRotationProof(proof) {
 		return false
 	}
 
@@ -282,7 +282,7 @@ func verifyCoreAfp(afp *structures.AggregatedFinalizationProof, epochFullID stri
 // and the target epoch by sequentially loading locally stored proofs first
 // and then optionally fetching missing ones via fetchFn.
 // Returns the number of epochs successfully applied.
-func CatchUpCoreEpochDataAttestations(targetEpochId int, fetchFn func(epochId int) *structures.AggregatedEpochRotationProof) int {
+func CatchUpCoreEpochRotationProofs(targetEpochId int, fetchFn func(epochId int) *structures.AggregatedEpochRotationProof) int {
 
 	applied := 0
 

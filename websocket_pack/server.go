@@ -77,10 +77,10 @@ func (h *Handler) OnMessage(connection *gws.Conn, message *gws.Message) {
 
 	case "accept_aggregated_epoch_rotation_proof":
 
-		var req WsAcceptEpochDataAttestationRequest
+		var req WsAcceptAggregatedEpochRotationProofRequest
 
 		if err := json.Unmarshal(message.Bytes(), &req); err != nil {
-			connection.WriteMessage(gws.OpcodeText, []byte(`{"error":"invalid_epoch_rotation_proof_request"}`))
+			connection.WriteMessage(gws.OpcodeText, []byte(`{"error":"invalid_aggregated_epoch_rotation_proof_request"}`))
 			return
 		}
 
