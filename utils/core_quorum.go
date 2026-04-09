@@ -3,6 +3,7 @@ package utils
 import (
 	"strconv"
 
+	"github.com/modulrcloud/modulr-anchors-core/constants"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
 )
 
@@ -10,7 +11,7 @@ func ComputeCoreInitialEpochHash() string {
 
 	cg := &globals.CORE_GENESIS
 
-	hashInput := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" + cg.NetworkId + strconv.FormatUint(cg.FirstEpochStartTimestamp, 10)
+	hashInput := constants.ZeroHash + cg.NetworkId + strconv.FormatUint(cg.FirstEpochStartTimestamp, 10)
 
 	return Blake3(hashInput)
 }

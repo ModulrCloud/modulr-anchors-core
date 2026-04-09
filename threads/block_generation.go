@@ -49,7 +49,7 @@ func getGenerationMetadata(epochFullID string) *structures.GenerationThreadMetad
 
 	metadata := &structures.GenerationThreadMetadataHandler{
 		EpochFullId: epochFullID,
-		PrevHash:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		PrevHash:    constants.ZeroHash,
 		NextIndex:   0,
 	}
 
@@ -93,7 +93,7 @@ func generateBlock(epochHandlerRef *structures.EpochDataHandler) {
 	if metadata.EpochFullId != epochFullID {
 
 		metadata.EpochFullId = epochFullID
-		metadata.PrevHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		metadata.PrevHash = constants.ZeroHash
 		metadata.NextIndex = 0
 		globals.MEMPOOL.ClearEpochProofs(epochIndex)
 

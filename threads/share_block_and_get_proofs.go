@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/modulrcloud/modulr-anchors-core/block_pack"
+	"github.com/modulrcloud/modulr-anchors-core/constants"
 	"github.com/modulrcloud/modulr-anchors-core/cryptography"
 	"github.com/modulrcloud/modulr-anchors-core/databases"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
@@ -302,7 +303,7 @@ func ensureFinalizationRuntime(epochHandler *structures.EpochDataHandler) *Final
 		BlockToShare: &block_pack.Block{Index: -1},
 		Connections:  make(map[string]*websocket.Conn),
 	}
-	grabber := ProofsGrabber{EpochId: epochHandler.Id, AcceptedIndex: -1, AcceptedHash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+	grabber := ProofsGrabber{EpochId: epochHandler.Id, AcceptedIndex: -1, AcceptedHash: constants.ZeroHash}
 	if rawGrabber, err := databases.FINALIZATION_VOTING_STATS.Get([]byte(strconv.Itoa(epochHandler.Id)+":PROOFS_GRABBER"), nil); err == nil {
 		json.Unmarshal(rawGrabber, &grabber)
 	}

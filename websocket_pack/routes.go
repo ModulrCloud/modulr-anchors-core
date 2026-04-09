@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/modulrcloud/modulr-anchors-core/block_pack"
+	"github.com/modulrcloud/modulr-anchors-core/constants"
 	"github.com/modulrcloud/modulr-anchors-core/cryptography"
 	"github.com/modulrcloud/modulr-anchors-core/databases"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
@@ -143,7 +144,7 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 
 							if parsedRequest.Block.Index == 0 {
 
-								prevBlockHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+								prevBlockHash = constants.ZeroHash
 
 							} else {
 

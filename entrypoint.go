@@ -198,7 +198,7 @@ func loadGenesis() error {
 		return err
 	}
 
-	hashInput := constants.ZeroBlockHash + globals.GENESIS.NetworkId + strconv.FormatUint(epochTimestamp, 10)
+	hashInput := constants.ZeroHash + globals.GENESIS.NetworkId + strconv.FormatUint(epochTimestamp, 10)
 
 	initEpochHash := utils.Blake3(hashInput)
 
@@ -274,7 +274,7 @@ func loadGenerationThreadMetadata() error {
 		if _, ok := handlers.GENERATION_THREAD_METADATA.Handlers[epochFullID]; !ok {
 			handlers.GENERATION_THREAD_METADATA.Handlers[epochFullID] = &structures.GenerationThreadMetadataHandler{
 				EpochFullId: epochFullID,
-				PrevHash:    constants.ZeroBlockHash,
+				PrevHash:    constants.ZeroHash,
 				NextIndex:   0,
 			}
 		}
