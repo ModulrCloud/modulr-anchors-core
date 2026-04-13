@@ -11,7 +11,7 @@ func ComputeCoreInitialEpochHash() string {
 
 	cg := &globals.CORE_GENESIS
 
-	hashInput := constants.ZeroHash + cg.NetworkId + strconv.FormatUint(cg.FirstEpochStartTimestamp, 10)
+	hashInput := constants.ZeroHash + cg.NetworkId
 
 	return Blake3(hashInput)
 }
