@@ -21,11 +21,14 @@ type NextEpochData struct {
 }
 
 type AggregatedEpochRotationProof struct {
-	EpochId       int               `json:"epochId"`
-	NextEpochId   int               `json:"nextEpochId"`
-	EpochData     NextEpochData     `json:"epochData"`
-	EpochDataHash string            `json:"epochDataHash"`
-	Proofs        map[string]string `json:"proofs"`
+	EpochId           int               `json:"epochId"`
+	NextEpochId       int               `json:"nextEpochId"`
+	EpochData         NextEpochData     `json:"epochData"`
+	EpochDataHash     string            `json:"epochDataHash"`
+	FinishedOnHeight  int64             `json:"finishedOnHeight"`
+	FinishedOnBlockId string            `json:"finishedOnBlockId"`
+	FinishedOnHash    string            `json:"finishedOnHash"`
+	Proofs            map[string]string `json:"proofs"`
 }
 
 func (eda *AggregatedEpochRotationProof) UnmarshalJSON(data []byte) error {
