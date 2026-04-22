@@ -37,11 +37,20 @@ import (
 const (
 	coreValidatorUrlResolverHttpTimeout = 2 * time.Second
 	coreValidatorUrlResolverMaxBatch    = 256
+
+	// coreValidatorUrlsSoftCap bounds how many dynamically-resolved entries
+	// can accumulate in the cache. When exceeded, every non-genesis entry is
+	// evicted in one sweep; the next ResolveCoreValidatorWsUrls call will
+	// re-fetch the URLs it actually needs from bootstrap nodes. Genesis
+	// entries are pinned and never evicted so the bootstrap snapshot remains
+	// intact for the lifetime of the process.
+	coreValidatorUrlsSoftCap = 5000
 )
 
 var (
 	coreValidatorUrlsMu       sync.RWMutex
 	coreValidatorUrls         = make(map[string]string)
+	coreValidatorUrlsGenesis  = make(map[string]struct{}) // pubkeys seeded from CORE_GENESIS (pinned)
 	coreValidatorUrlsBootOnce sync.Once
 
 	coreValidatorUrlsHttpClient = &http.Client{Timeout: coreValidatorUrlResolverHttpTimeout}
@@ -59,6 +68,7 @@ func initCoreValidatorUrlsFromGenesis() {
 				continue
 			}
 			coreValidatorUrls[v.Pubkey] = v.WssValidatorUrl
+			coreValidatorUrlsGenesis[v.Pubkey] = struct{}{}
 		}
 	})
 }
@@ -133,6 +143,23 @@ func ResolveCoreValidatorWsUrls(pubkeys []string) map[string]string {
 		for pk, url := range fetched {
 			coreValidatorUrls[pk] = url
 			resolved[pk] = url
+		}
+		// Soft cap: once the cache has grown past the threshold, sweep every
+		// non-genesis entry. This keeps memory bounded across long-running
+		// nodes even as the core validator set rotates over many epochs.
+		// The freshly-added entries from `fetched` are preserved because
+		// we just wrote them above; entries from *previous* Resolve calls
+		// that aren't pinned get dropped.
+		if len(coreValidatorUrls) > coreValidatorUrlsSoftCap {
+			for pk := range coreValidatorUrls {
+				if _, pinned := coreValidatorUrlsGenesis[pk]; pinned {
+					continue
+				}
+				if _, justAdded := fetched[pk]; justAdded {
+					continue
+				}
+				delete(coreValidatorUrls, pk)
+			}
 		}
 		coreValidatorUrlsMu.Unlock()
 	}

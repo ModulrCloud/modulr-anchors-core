@@ -174,7 +174,7 @@ func closeEpochCollectionStateLocked(st *epochCollectionState) {
 		for id, c := range st.wsConns {
 			if c != nil {
 				_ = c.Close()
-				st.guards.WriteMu.Delete(c)
+				utils.ScheduleWriteMuCleanup(st.guards, c)
 			}
 			delete(st.wsConns, id)
 		}

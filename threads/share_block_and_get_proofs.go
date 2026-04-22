@@ -324,7 +324,7 @@ func removeFinalizationRuntime(epochId int) {
 			for _, conn := range runtime.Connections {
 				if conn != nil {
 					_ = conn.Close()
-					runtime.Guards.WriteMu.Delete(conn)
+					utils.ScheduleWriteMuCleanup(runtime.Guards, conn)
 				}
 			}
 			runtime.Guards.ConnMu.Unlock()
