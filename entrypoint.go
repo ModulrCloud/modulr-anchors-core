@@ -71,6 +71,15 @@ func RunAnchorsChains() {
 		go threads.AnchorsPoDOutboxThread()
 	}
 
+	// ✅ 8.Anchor-driven ALFP collection. When modulr-core's LFT fails to deliver
+	// an ALFP via the normal POST path (LFT lagging behind anchor's epoch window,
+	// network blip, validator restart, etc.), the anchor itself fans out signature
+	// requests to the core quorum and reconstructs the ALFP locally — exactly the
+	// way LFT does it on the core side. Triggered per leader only after the
+	// leadership window plus a small grace, so it stays out of LFT's way when
+	// LFT is healthy.
+	go threads.AlfpCollectionThread()
+
 	//___________________ RUN SERVERS - WEBSOCKET AND HTTP __________________
 
 	// Set the atomic flag to true

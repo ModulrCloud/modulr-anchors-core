@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/modulrcloud/modulr-anchors-core/block_pack"
+	"github.com/modulrcloud/modulr-anchors-core/constants"
 	"github.com/modulrcloud/modulr-anchors-core/cryptography"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
 	"github.com/modulrcloud/modulr-anchors-core/handlers"
@@ -39,6 +40,19 @@ type aggregatedEpochRotationProofGetRequest struct {
 
 type aggregatedEpochRotationProofGetResponse struct {
 	Proof *structures.AggregatedEpochRotationProof `json:"proof"`
+}
+
+// aggregatedLeaderFinalizationProofGetRequest mirrors modulr-core's
+// WsAggregatedLeaderFinalizationProofRequest. PoD answers both core and
+// anchors-core nodes with the same payload shape.
+type aggregatedLeaderFinalizationProofGetRequest struct {
+	Route      string `json:"route"`
+	EpochIndex int    `json:"epochIndex"`
+	Leader     string `json:"leader"`
+}
+
+type aggregatedLeaderFinalizationProofGetResponse struct {
+	Proof *structures.AggregatedLeaderFinalizationProof `json:"proof"`
 }
 
 func SendWebsocketMessageToAnchorsPoD(msg []byte) ([]byte, error) {
@@ -127,6 +141,35 @@ func SendBlockAndAfpToAnchorsPoD(block block_pack.Block, afp *structures.Aggrega
 		}
 		_ = SendToAnchorsPoDWithOutbox(id, reqBytes)
 	}
+}
+
+// GetAggregatedLeaderFinalizationProofFromPoD asks the unified PoD for an ALFP
+// belonging to (epochIndex, leader). Returns nil when PoD does not have it (yet)
+// or when the response is malformed. The caller is responsible for cryptographic
+// verification — this function does not validate the proof.
+func GetAggregatedLeaderFinalizationProofFromPoD(epochIndex int, leader string) *structures.AggregatedLeaderFinalizationProof {
+	req := aggregatedLeaderFinalizationProofGetRequest{
+		Route:      constants.WsRouteGetAggregatedLeaderFinalizationProof,
+		EpochIndex: epochIndex,
+		Leader:     leader,
+	}
+
+	reqBytes, err := json.Marshal(req)
+	if err != nil {
+		return nil
+	}
+
+	respBytes, err := SendWebsocketMessageToAnchorsPoD(reqBytes)
+	if err != nil {
+		return nil
+	}
+
+	var resp aggregatedLeaderFinalizationProofGetResponse
+	if json.Unmarshal(respBytes, &resp) != nil {
+		return nil
+	}
+
+	return resp.Proof
 }
 
 func GetAggregatedEpochRotationProofFromPoD(epochId int) *structures.AggregatedEpochRotationProof {

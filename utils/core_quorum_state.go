@@ -101,16 +101,19 @@ func InitCoreQuorumStateFromGenesis() *structures.CoreQuorumState {
 	existing := LoadCoreQuorumState()
 
 	if existing != nil {
+		backfillGenesisLeadersSequenceIfMissing()
 		return existing
 	}
 
 	quorum := ComputeCoreQuorumFromGenesis()
 	epochHash := ComputeCoreInitialEpochHash()
+	leadersSequence := ComputeCoreLeadersSequenceFromGenesis()
 
 	epochData := &structures.CoreEpochData{
-		EpochId:   0,
-		EpochHash: epochHash,
-		Quorum:    quorum,
+		EpochId:         0,
+		EpochHash:       epochHash,
+		Quorum:          quorum,
+		LeadersSequence: leadersSequence,
 	}
 
 	PersistCoreEpochData(epochData)
@@ -148,9 +151,10 @@ func ApplyCoreAggregatedEpochRotationProof(proof *structures.AggregatedEpochRota
 	}
 
 	newEpochData := &structures.CoreEpochData{
-		EpochId:   proof.NextEpochId,
-		EpochHash: proof.EpochData.NextEpochHash,
-		Quorum:    proof.EpochData.NextEpochQuorum,
+		EpochId:         proof.NextEpochId,
+		EpochHash:       proof.EpochData.NextEpochHash,
+		Quorum:          proof.EpochData.NextEpochQuorum,
+		LeadersSequence: append([]string(nil), proof.EpochData.NextEpochLeadersSequence...),
 	}
 
 	PersistCoreEpochData(newEpochData)
@@ -162,6 +166,24 @@ func ApplyCoreAggregatedEpochRotationProof(proof *structures.AggregatedEpochRota
 	cleanupOldCoreEpochData(state.LatestEpochId)
 
 	return true
+}
+
+// backfillGenesisLeadersSequenceIfMissing populates LeadersSequence for the
+// genesis CoreEpochData record on anchors that were initialized before the
+// LeadersSequence field was added. For non-genesis epochs there is nothing
+// we can deterministically backfill from local data — the leaders sequence
+// arrives via AggregatedEpochRotationProof.EpochData.NextEpochLeadersSequence
+// at the next rotation.
+func backfillGenesisLeadersSequenceIfMissing() {
+	epochData := LoadCoreEpochData(0)
+	if epochData == nil || len(epochData.LeadersSequence) > 0 {
+		return
+	}
+	epochData.LeadersSequence = ComputeCoreLeadersSequenceFromGenesis()
+	if len(epochData.LeadersSequence) == 0 {
+		return
+	}
+	PersistCoreEpochData(epochData)
 }
 
 func cleanupOldCoreEpochData(latestEpochId int) {
@@ -185,6 +207,9 @@ func cleanupOldCoreEpochData(latestEpochId int) {
 		}
 		DeleteCoreEpochData(epochId)
 		DeleteAggregatedEpochRotationProof(epochId)
+		// Inclusion markers are keyed by the core epoch ID and become useless
+		// once the core epoch leaves the supported window.
+		DeleteAlfpInclusionMarkersForEpoch(epochId)
 	}
 }
 

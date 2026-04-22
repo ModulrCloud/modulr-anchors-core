@@ -3,9 +3,10 @@ package structures
 import "encoding/json"
 
 type CoreEpochData struct {
-	EpochId   int      `json:"epochId"`
-	EpochHash string   `json:"epochHash"`
-	Quorum    []string `json:"quorum"`
+	EpochId         int      `json:"epochId"`
+	EpochHash       string   `json:"epochHash"`
+	Quorum          []string `json:"quorum"`
+	LeadersSequence []string `json:"leadersSequence"`
 }
 
 type CoreQuorumState struct {

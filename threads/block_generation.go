@@ -139,27 +139,64 @@ func generateBlock(epochHandlerRef *structures.EpochDataHandler) {
 	blockBytes, serializeErr := json.Marshal(blockCandidate)
 
 	if serializeErr != nil {
+		// If we cannot serialize, the proofs we just drained would be lost forever
+		// (mempool is in-memory). Restore them so the next iteration can retry.
+		globals.MEMPOOL.RestoreAggregatedAnchorRotationProofs(epochIndex, aggregatedRotationProofs)
+		globals.MEMPOOL.RestoreAggregatedLeaderFinalizationProofs(epochIndex, aggregatedLeaderProofs)
+		utils.LogWithTime(
+			fmt.Sprintf("Block serialization failed for %s: %v (restored %d AARPs and %d ALFPs to mempool)", epochFullID, serializeErr, len(aggregatedRotationProofs), len(aggregatedLeaderProofs)),
+			utils.YELLOW_COLOR,
+		)
 		return
 	}
 
 	handlers.GENERATION_THREAD_METADATA.Lock()
-
 	metadata.PrevHash = blockHash
-
 	metadata.NextIndex++
-
+	gtBytes, gtErr := json.Marshal(metadata)
 	handlers.GENERATION_THREAD_METADATA.Unlock()
 
-	if gtBytes, err := json.Marshal(metadata); err == nil {
-
-		blockDbAtomicBatch.Put([]byte(blockID), blockBytes)
-
-		blockDbAtomicBatch.Put([]byte(constants.DBKeyPrefixGenerationThread+epochFullID), gtBytes)
-
-		if err := databases.BLOCKS.Write(blockDbAtomicBatch, nil); err != nil {
-			panic("Can't store GT and block candidate")
-		}
-
+	if gtErr != nil {
+		// Same restore reasoning as above; do not advance state.
+		handlers.GENERATION_THREAD_METADATA.Lock()
+		metadata.NextIndex--
+		handlers.GENERATION_THREAD_METADATA.Unlock()
+		globals.MEMPOOL.RestoreAggregatedAnchorRotationProofs(epochIndex, aggregatedRotationProofs)
+		globals.MEMPOOL.RestoreAggregatedLeaderFinalizationProofs(epochIndex, aggregatedLeaderProofs)
+		return
 	}
 
+	blockDbAtomicBatch.Put([]byte(blockID), blockBytes)
+	blockDbAtomicBatch.Put([]byte(constants.DBKeyPrefixGenerationThread+epochFullID), gtBytes)
+
+	if err := databases.BLOCKS.Write(blockDbAtomicBatch, nil); err != nil {
+		// Restore so the proofs are not silently lost; do not advance NextIndex.
+		handlers.GENERATION_THREAD_METADATA.Lock()
+		metadata.NextIndex--
+		handlers.GENERATION_THREAD_METADATA.Unlock()
+		globals.MEMPOOL.RestoreAggregatedAnchorRotationProofs(epochIndex, aggregatedRotationProofs)
+		globals.MEMPOOL.RestoreAggregatedLeaderFinalizationProofs(epochIndex, aggregatedLeaderProofs)
+		panic("Can't store GT and block candidate: " + err.Error())
+	}
+
+	// Persist ALFP inclusion markers, grouped by epoch (ALFPs from different
+	// core epochs may end up in the same anchor block).
+	if len(aggregatedLeaderProofs) > 0 {
+		markersByEpoch := make(map[int][]string, 1)
+		for _, alfp := range aggregatedLeaderProofs {
+			markersByEpoch[alfp.EpochIndex] = append(markersByEpoch[alfp.EpochIndex], alfp.Leader)
+		}
+		inclusionBatch := new(leveldb.Batch)
+		for epochId, leaders := range markersByEpoch {
+			utils.MarkAlfpIncludedBatch(inclusionBatch, epochId, leaders)
+		}
+		if err := databases.EPOCH_DATA.Write(inclusionBatch, nil); err != nil {
+			// Inclusion markers are an optimization (avoid re-pulling already-included
+			// proofs from PoD). Block persistence already succeeded, so do not panic.
+			utils.LogWithTime(
+				fmt.Sprintf("Failed to persist ALFP inclusion markers for block %s: %v", blockID, err),
+				utils.YELLOW_COLOR,
+			)
+		}
+	}
 }

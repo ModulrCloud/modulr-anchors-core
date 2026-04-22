@@ -43,6 +43,43 @@ type QuorumResponse struct {
 	msg []byte
 }
 
+// OpenWebsocketConnectionsWithUrlMap opens WS connections to a set of remote
+// nodes addressed by `pubkey` using a caller-provided `pubkey -> wssUrl` map.
+// Pubkeys with no URL in the map (or an empty URL) are skipped. Existing
+// entries in `wsConnMap` are closed and replaced atomically under guards.
+//
+// This is the generic counterpart to OpenWebsocketConnectionsWithQuorum:
+// the latter is hard-coded to anchor storage lookups, while this one lets the
+// caller supply URLs from any source (e.g. CORE_GENESIS + bootstrap HTTP
+// resolution for core validators when collecting ALFPs).
+func OpenWebsocketConnectionsWithUrlMap(pubkeys []string, urlByPubkey map[string]string, wsConnMap map[string]*websocket.Conn, guards *WebsocketGuards) {
+	guards.ConnMu.Lock()
+	for id, conn := range wsConnMap {
+		if conn != nil {
+			_ = conn.Close()
+			guards.WriteMu.Delete(conn)
+		}
+		delete(wsConnMap, id)
+	}
+	guards.ConnMu.Unlock()
+
+	for _, pubkey := range pubkeys {
+		url := urlByPubkey[pubkey]
+		if url == "" {
+			continue
+		}
+
+		conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+		if err != nil {
+			continue
+		}
+
+		guards.ConnMu.Lock()
+		wsConnMap[pubkey] = conn
+		guards.ConnMu.Unlock()
+	}
+}
+
 func OpenWebsocketConnectionsWithQuorum(quorum []string, wsConnMap map[string]*websocket.Conn, guards *WebsocketGuards) {
 	// Close and remove any existing connections
 	guards.ConnMu.Lock()
