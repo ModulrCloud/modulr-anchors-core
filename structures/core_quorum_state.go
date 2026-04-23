@@ -14,11 +14,17 @@ type CoreQuorumState struct {
 }
 
 type NextEpochData struct {
-	NextEpochHash               string              `json:"nextEpochHash"`
-	NextEpochValidatorsRegistry []string            `json:"nextEpochValidatorsRegistry"`
-	NextEpochQuorum             []string            `json:"nextEpochQuorum"`
-	NextEpochLeadersSequence    []string            `json:"nextEpochLeadersSequence"`
-	DelayedTransactions         []map[string]string `json:"delayedTransactions"`
+	NextEpochHash               string   `json:"nextEpochHash"`
+	NextEpochValidatorsRegistry []string `json:"nextEpochValidatorsRegistry"`
+	NextEpochQuorum             []string `json:"nextEpochQuorum"`
+	NextEpochLeadersSequence    []string `json:"nextEpochLeadersSequence"`
+	// NextEpochStartTimestamp mirrors modulr-core's NextEpochDataHandler field:
+	// canonical scheduled start time (UTC ms) of the next core epoch. Used by
+	// AlfpCollectionThread to compute per-leader end timestamps for proactive
+	// ALFP collection without depending on static genesis offsets that drift
+	// from real core progress.
+	NextEpochStartTimestamp uint64              `json:"nextEpochStartTimestamp"`
+	DelayedTransactions     []map[string]string `json:"delayedTransactions"`
 }
 
 type AggregatedEpochRotationProof struct {
