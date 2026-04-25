@@ -3,7 +3,6 @@ package utils
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/modulrcloud/modulr-anchors-core/constants"
 	"github.com/modulrcloud/modulr-anchors-core/databases"
@@ -70,13 +69,4 @@ func DeleteAlfpInclusionMarkersForEpoch(epochId int) {
 			YELLOW_COLOR,
 		)
 	}
-}
-
-// AlfpInclusionMarkerExists is a convenience helper for tests/diagnostics.
-// It avoids leaking the LevelDB key format outside this file.
-func AlfpInclusionMarkerExists(epochId int, leader string) bool {
-	if strings.TrimSpace(leader) == "" || epochId < 0 {
-		return false
-	}
-	return IsAlfpIncluded(epochId, leader)
 }

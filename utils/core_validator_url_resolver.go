@@ -73,17 +73,6 @@ func initCoreValidatorUrlsFromGenesis() {
 	})
 }
 
-// GetCoreValidatorWsUrl returns the WSS endpoint for `pubkey` from the local
-// cache (CORE_GENESIS + previously resolved). Returns "" when unknown.
-// Does NOT trigger HTTP resolution — use ResolveCoreValidatorWsUrls for that.
-func GetCoreValidatorWsUrl(pubkey string) string {
-	initCoreValidatorUrlsFromGenesis()
-
-	coreValidatorUrlsMu.RLock()
-	defer coreValidatorUrlsMu.RUnlock()
-	return coreValidatorUrls[pubkey]
-}
-
 // ResolveCoreValidatorWsUrls returns a {pubkey: wssUrl} map for `pubkeys`,
 // using the local cache first and falling back to bootstrap-node HTTP resolution
 // for the remainder. Pubkeys that cannot be resolved are simply omitted from
