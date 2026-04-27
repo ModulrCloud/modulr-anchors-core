@@ -36,6 +36,8 @@ func createRouter() fasthttp.RequestHandler {
 
 	// Recovery: returns signed AggregatedEpochRotationProof for a given epoch
 	r.GET("/recovery/core_quorum/{epoch}", routes.GetRecoveryCoreQuorum)
+	// Recovery: auto-discover the latest known core epoch (signed AERP for it)
+	r.GET("/recovery/latest_core_quorum", routes.GetRecoveryLatestCoreQuorum)
 
 	return r.Handler
 }

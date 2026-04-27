@@ -1,10 +1,11 @@
 // Package utils — core validator URL resolver.
 //
 // To collect ALFPs from a core quorum the anchor needs WSS endpoints for every
-// quorum member. CORE_GENESIS gives us URLs for the genesis validator set, but
-// validators that joined later are not present there and their URLs are not
-// propagated through AggregatedEpochRotationProof either (the rotation proof
-// only carries pubkeys).
+// quorum member. Recovery flows additionally need the plain-HTTP validator URL
+// to query /recovery/last_finalized_height. CORE_GENESIS gives us URLs for the
+// genesis validator set, but validators that joined later are not present
+// there and their URLs are not propagated through AggregatedEpochRotationProof
+// either (the rotation proof only carries pubkeys).
 //
 // This file implements a small two-tier resolver:
 //
@@ -12,14 +13,15 @@
 //     and never go to the network. Suitable for stable, well-known validators.
 //
 //  2. HTTP fallback that calls the configured CoreBootstrapNodes:
-//     GET {bootstrap}/get_validator_ws_endpoints?pubkeys=pk1,pk2,...
+//     GET {bootstrap}/get_validator_endpoints?pubkeys=pk1,pk2,...
 //     The first bootstrap that returns at least one valid mapping wins.
 //     Resolved URLs are cached in the same in-process map so subsequent lookups
 //     for the same pubkey skip the network entirely.
 //
 // The resolver is intentionally best-effort: missing/unreachable bootstrap nodes
-// or validators with no published WSS URL are simply skipped — callers handle
-// "no URL for pubkey X" by not opening a WS connection to that quorum member.
+// or validators with no published URL are simply skipped — callers handle
+// "no URL for pubkey X" by not opening a WS connection / not contacting that
+// quorum member.
 package utils
 
 import (
@@ -40,16 +42,23 @@ const (
 
 	// coreValidatorUrlsSoftCap bounds how many dynamically-resolved entries
 	// can accumulate in the cache. When exceeded, every non-genesis entry is
-	// evicted in one sweep; the next ResolveCoreValidatorWsUrls call will
+	// evicted in one sweep; the next ResolveCoreValidatorEndpoints call will
 	// re-fetch the URLs it actually needs from bootstrap nodes. Genesis
 	// entries are pinned and never evicted so the bootstrap snapshot remains
 	// intact for the lifetime of the process.
 	coreValidatorUrlsSoftCap = 5000
 )
 
+// CoreValidatorEndpoints carries the two URLs the anchor knows for a validator.
+// Either field may be empty if the validator hasn't published it.
+type CoreValidatorEndpoints struct {
+	ValidatorUrl    string
+	WssValidatorUrl string
+}
+
 var (
 	coreValidatorUrlsMu       sync.RWMutex
-	coreValidatorUrls         = make(map[string]string)
+	coreValidatorEndpoints    = make(map[string]CoreValidatorEndpoints)
 	coreValidatorUrlsGenesis  = make(map[string]struct{}) // pubkeys seeded from CORE_GENESIS (pinned)
 	coreValidatorUrlsBootOnce sync.Once
 
@@ -64,16 +73,40 @@ func initCoreValidatorUrlsFromGenesis() {
 		defer coreValidatorUrlsMu.Unlock()
 
 		for _, v := range globals.CORE_GENESIS.Validators {
-			if v.Pubkey == "" || v.WssValidatorUrl == "" {
+			if v.Pubkey == "" {
 				continue
 			}
-			coreValidatorUrls[v.Pubkey] = v.WssValidatorUrl
+			if v.ValidatorUrl == "" && v.WssValidatorUrl == "" {
+				continue
+			}
+			coreValidatorEndpoints[v.Pubkey] = CoreValidatorEndpoints{
+				ValidatorUrl:    v.ValidatorUrl,
+				WssValidatorUrl: v.WssValidatorUrl,
+			}
 			coreValidatorUrlsGenesis[v.Pubkey] = struct{}{}
 		}
 	})
 }
 
-// ResolveCoreValidatorWsUrls returns a {pubkey: wssUrl} map for `pubkeys`,
+// GetCoreValidatorEndpoints returns the cached endpoints for `pubkey`
+// (CORE_GENESIS + previously resolved). The zero value is returned when the
+// pubkey is unknown. Does NOT trigger HTTP resolution — use
+// ResolveCoreValidatorEndpoints for that.
+func GetCoreValidatorEndpoints(pubkey string) CoreValidatorEndpoints {
+	initCoreValidatorUrlsFromGenesis()
+
+	coreValidatorUrlsMu.RLock()
+	defer coreValidatorUrlsMu.RUnlock()
+	return coreValidatorEndpoints[pubkey]
+}
+
+// GetCoreValidatorWsUrl returns the WSS endpoint for `pubkey` from the local
+// cache. Backwards-compatible wrapper kept for existing callers.
+func GetCoreValidatorWsUrl(pubkey string) string {
+	return GetCoreValidatorEndpoints(pubkey).WssValidatorUrl
+}
+
+// ResolveCoreValidatorEndpoints returns a {pubkey: endpoints} map for `pubkeys`,
 // using the local cache first and falling back to bootstrap-node HTTP resolution
 // for the remainder. Pubkeys that cannot be resolved are simply omitted from
 // the returned map (caller treats them as "no URL available").
@@ -81,10 +114,10 @@ func initCoreValidatorUrlsFromGenesis() {
 // The resolver makes at most one HTTP request per bootstrap node per call,
 // batching all unresolved pubkeys into a single request. It stops as soon as
 // it has filled in everything it asked for.
-func ResolveCoreValidatorWsUrls(pubkeys []string) map[string]string {
+func ResolveCoreValidatorEndpoints(pubkeys []string) map[string]CoreValidatorEndpoints {
 	initCoreValidatorUrlsFromGenesis()
 
-	resolved := make(map[string]string, len(pubkeys))
+	resolved := make(map[string]CoreValidatorEndpoints, len(pubkeys))
 	var missing []string
 
 	coreValidatorUrlsMu.RLock()
@@ -92,8 +125,8 @@ func ResolveCoreValidatorWsUrls(pubkeys []string) map[string]string {
 		if pk == "" {
 			continue
 		}
-		if url, ok := coreValidatorUrls[pk]; ok && url != "" {
-			resolved[pk] = url
+		if eps, ok := coreValidatorEndpoints[pk]; ok && (eps.ValidatorUrl != "" || eps.WssValidatorUrl != "") {
+			resolved[pk] = eps
 			continue
 		}
 		missing = append(missing, pk)
@@ -123,31 +156,28 @@ func ResolveCoreValidatorWsUrls(pubkeys []string) map[string]string {
 		}
 		chunk := missing[start:end]
 
-		fetched := fetchValidatorUrlsFromBootstraps(chunk, bootstraps)
+		fetched := fetchValidatorEndpointsFromBootstraps(chunk, bootstraps)
 		if len(fetched) == 0 {
 			continue
 		}
 
 		coreValidatorUrlsMu.Lock()
-		for pk, url := range fetched {
-			coreValidatorUrls[pk] = url
-			resolved[pk] = url
+		for pk, eps := range fetched {
+			coreValidatorEndpoints[pk] = eps
+			resolved[pk] = eps
 		}
 		// Soft cap: once the cache has grown past the threshold, sweep every
 		// non-genesis entry. This keeps memory bounded across long-running
 		// nodes even as the core validator set rotates over many epochs.
-		// The freshly-added entries from `fetched` are preserved because
-		// we just wrote them above; entries from *previous* Resolve calls
-		// that aren't pinned get dropped.
-		if len(coreValidatorUrls) > coreValidatorUrlsSoftCap {
-			for pk := range coreValidatorUrls {
+		if len(coreValidatorEndpoints) > coreValidatorUrlsSoftCap {
+			for pk := range coreValidatorEndpoints {
 				if _, pinned := coreValidatorUrlsGenesis[pk]; pinned {
 					continue
 				}
 				if _, justAdded := fetched[pk]; justAdded {
 					continue
 				}
-				delete(coreValidatorUrls, pk)
+				delete(coreValidatorEndpoints, pk)
 			}
 		}
 		coreValidatorUrlsMu.Unlock()
@@ -156,11 +186,29 @@ func ResolveCoreValidatorWsUrls(pubkeys []string) map[string]string {
 	return resolved
 }
 
-// fetchValidatorUrlsFromBootstraps tries each bootstrap node in order and
+// ResolveCoreValidatorWsUrls is a backwards-compatible wrapper around
+// ResolveCoreValidatorEndpoints that returns only the WSS URL per pubkey.
+// Pubkeys with no resolvable WSS URL are dropped from the result.
+func ResolveCoreValidatorWsUrls(pubkeys []string) map[string]string {
+	endpoints := ResolveCoreValidatorEndpoints(pubkeys)
+	out := make(map[string]string, len(endpoints))
+	for pk, eps := range endpoints {
+		if eps.WssValidatorUrl != "" {
+			out[pk] = eps.WssValidatorUrl
+		}
+	}
+	return out
+}
+
+// fetchValidatorEndpointsFromBootstraps tries each bootstrap node in order and
 // returns the first non-empty response. Bootstraps that fail (network/parse
-// errors) are skipped. The returned map only contains pubkeys with non-empty
-// WSS URLs.
-func fetchValidatorUrlsFromBootstraps(pubkeys []string, bootstraps []string) map[string]string {
+// errors) are skipped. The returned map only contains pubkeys with at least
+// one non-empty URL.
+//
+// It first tries the new /get_validator_endpoints route (returns both URLs);
+// if that returns nothing it falls back to /get_validator_ws_endpoints (older
+// core nodes only know the WSS-only route).
+func fetchValidatorEndpointsFromBootstraps(pubkeys []string, bootstraps []string) map[string]CoreValidatorEndpoints {
 	if len(pubkeys) == 0 || len(bootstraps) == 0 {
 		return nil
 	}
@@ -173,51 +221,99 @@ func fetchValidatorUrlsFromBootstraps(pubkeys []string, bootstraps []string) map
 			continue
 		}
 
-		url := base + "/get_validator_ws_endpoints?pubkeys=" + query
-
-		resp, err := coreValidatorUrlsHttpClient.Get(url)
-		if err != nil {
-			LogWithTimeThrottled(
-				"core_validator_url_resolver:http_err:"+base,
-				10*time.Second,
-				fmt.Sprintf("Core validator URL resolver: GET %s failed: %v", base, err),
-				YELLOW_COLOR,
-			)
-			continue
+		// Try the rich endpoint first.
+		if out := fetchValidatorEndpointsRich(base, query); len(out) > 0 {
+			return out
 		}
 
-		if resp.StatusCode != http.StatusOK {
-			_ = resp.Body.Close()
-			LogWithTimeThrottled(
-				"core_validator_url_resolver:http_status:"+base,
-				10*time.Second,
-				fmt.Sprintf("Core validator URL resolver: %s returned HTTP %d", base, resp.StatusCode),
-				YELLOW_COLOR,
-			)
-			continue
-		}
-
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		_ = resp.Body.Close()
-		if err != nil {
-			continue
-		}
-
-		var endpoints map[string]string
-		if json.Unmarshal(body, &endpoints) != nil {
-			continue
-		}
-
-		out := make(map[string]string, len(endpoints))
-		for pk, url := range endpoints {
-			if url != "" {
-				out[pk] = url
-			}
-		}
-		if len(out) > 0 {
+		// Fallback to the WSS-only endpoint.
+		if out := fetchValidatorEndpointsWssOnly(base, query); len(out) > 0 {
 			return out
 		}
 	}
 
 	return nil
+}
+
+func fetchValidatorEndpointsRich(base, query string) map[string]CoreValidatorEndpoints {
+	url := base + "/get_validator_endpoints?pubkeys=" + query
+
+	resp, err := coreValidatorUrlsHttpClient.Get(url)
+	if err != nil {
+		LogWithTimeThrottled(
+			"core_validator_url_resolver:http_err:"+base,
+			10*time.Second,
+			fmt.Sprintf("Core validator URL resolver: GET %s failed: %v", base, err),
+			YELLOW_COLOR,
+		)
+		return nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		// 404/400 here just means the bootstrap doesn't speak this route yet.
+		// Don't log loudly — the WSS-only fallback will retry.
+		return nil
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
+	_ = resp.Body.Close()
+	if err != nil {
+		return nil
+	}
+
+	type richEntry struct {
+		ValidatorUrl    string `json:"validatorUrl"`
+		WssValidatorUrl string `json:"wssValidatorUrl"`
+	}
+	var endpoints map[string]richEntry
+	if json.Unmarshal(body, &endpoints) != nil {
+		return nil
+	}
+
+	out := make(map[string]CoreValidatorEndpoints, len(endpoints))
+	for pk, e := range endpoints {
+		if e.ValidatorUrl == "" && e.WssValidatorUrl == "" {
+			continue
+		}
+		out[pk] = CoreValidatorEndpoints{
+			ValidatorUrl:    e.ValidatorUrl,
+			WssValidatorUrl: e.WssValidatorUrl,
+		}
+	}
+	return out
+}
+
+func fetchValidatorEndpointsWssOnly(base, query string) map[string]CoreValidatorEndpoints {
+	url := base + "/get_validator_ws_endpoints?pubkeys=" + query
+
+	resp, err := coreValidatorUrlsHttpClient.Get(url)
+	if err != nil {
+		return nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return nil
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	_ = resp.Body.Close()
+	if err != nil {
+		return nil
+	}
+
+	var endpoints map[string]string
+	if json.Unmarshal(body, &endpoints) != nil {
+		return nil
+	}
+
+	out := make(map[string]CoreValidatorEndpoints, len(endpoints))
+	for pk, wss := range endpoints {
+		if wss == "" {
+			continue
+		}
+		out[pk] = CoreValidatorEndpoints{WssValidatorUrl: wss}
+	}
+	return out
 }
