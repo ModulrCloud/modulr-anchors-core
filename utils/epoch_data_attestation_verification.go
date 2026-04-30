@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/modulrcloud/modulr-anchors-core/cryptography"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
 )
 
@@ -60,10 +59,7 @@ func VerifyAggregatedEpochRotationProof(proof *structures.AggregatedEpochRotatio
 		majority = len(epochData.Quorum)
 	}
 
-	quorumMap := make(map[string]bool, len(epochData.Quorum))
-	for _, pk := range epochData.Quorum {
-		quorumMap[pk] = true
-	}
+	quorumMap := QuorumMap(epochData.Quorum)
 
 	dataToVerify := BuildEpochRotationProofSigningPayload(
 		proof.EpochId,
@@ -74,17 +70,5 @@ func VerifyAggregatedEpochRotationProof(proof *structures.AggregatedEpochRotatio
 		proof.FinishedOnHash,
 	)
 
-	okSignatures := 0
-	seen := make(map[string]bool)
-
-	for pubKey, signature := range proof.Proofs {
-		if quorumMap[pubKey] && !seen[pubKey] {
-			if cryptography.VerifySignature(dataToVerify, pubKey, signature) {
-				seen[pubKey] = true
-				okSignatures++
-			}
-		}
-	}
-
-	return okSignatures >= majority
+	return HasVerifiedQuorumSignatures(proof.Proofs, quorumMap, dataToVerify, majority)
 }

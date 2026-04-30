@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/modulrcloud/modulr-anchors-core/databases"
 	"github.com/modulrcloud/modulr-anchors-core/handlers"
@@ -186,20 +185,16 @@ func computeSequenceAlignmentData(epochIndex int, anchorIndex int, anchors []str
 }
 
 func parseBlockIndex(blockID string) (int, error) {
-	parts := strings.Split(blockID, ":")
-	if len(parts) != 3 {
-		return 0, fmt.Errorf("invalid blockId format")
-	}
-	idx, err := strconv.Atoi(parts[2])
+	parsedBlockID, err := utils.ParseBlockID(blockID)
 	if err != nil {
-		return 0, fmt.Errorf("invalid block index")
+		return 0, err
 	}
-	return idx, nil
+	return parsedBlockID.Index, nil
 }
 
 func loadAggregatedFinalizationProof(epoch int, creator string, blockIndex int) (*structures.AggregatedFinalizationProof, error) {
 
-	blockID := fmt.Sprintf("%d:%s:%d", epoch, creator, blockIndex)
+	blockID := utils.FormatBlockID(epoch, creator, blockIndex)
 	raw, err := databases.EPOCH_DATA.Get([]byte("AFP:"+blockID), nil)
 	if err != nil {
 		if err == ldbErrors.ErrNotFound {

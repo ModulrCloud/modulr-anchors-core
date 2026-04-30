@@ -197,34 +197,24 @@ func GetBlockWithAggregatedFinalizationProof(parsedRequest WsBlockWithAfpRequest
 
 			// Now try to get AFP for block
 
-			parts := strings.Split(parsedRequest.BlockId, ":")
+			blockID, err := utils.ParseBlockID(parsedRequest.BlockId)
 
-			if len(parts) > 0 {
+			if err == nil {
 
-				last := parts[len(parts)-1]
+				nextBlockId := utils.FormatBlockID(blockID.Epoch, blockID.Creator, blockID.Index+1)
 
-				if idx, err := strconv.ParseUint(last, 10, 64); err == nil {
+				// Remark: To make sure block with index X is 100% approved we need to get the AFP for next block
 
-					parts[len(parts)-1] = strconv.FormatUint(idx+1, 10)
+				if afpBytes, err := databases.EPOCH_DATA.Get([]byte("AFP:"+nextBlockId), nil); err == nil {
 
-					nextBlockId := strings.Join(parts, ":")
+					var afp structures.AggregatedFinalizationProof
 
-					// Remark: To make sure block with index X is 100% approved we need to get the AFP for next block
+					if err := json.Unmarshal(afpBytes, &afp); err == nil {
 
-					if afpBytes, err := databases.EPOCH_DATA.Get([]byte("AFP:"+nextBlockId), nil); err == nil {
-
-						var afp structures.AggregatedFinalizationProof
-
-						if err := json.Unmarshal(afpBytes, &afp); err == nil {
-
-							resp.Afp = &afp
-
-						}
-
+						resp.Afp = &afp
 					}
 
 				}
-
 			}
 
 			jsonResponse, err := json.Marshal(resp)

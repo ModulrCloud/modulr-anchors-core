@@ -589,12 +589,11 @@ func validateUpgradeSkipData(skip structures.VotingStat, epochId int, leaderPubK
 	if skip.Index < 0 {
 		return true
 	}
-	parts := strings.Split(skip.Afp.BlockId, ":")
-	if len(parts) != 3 {
+	blockID, err := utils.ParseBlockID(skip.Afp.BlockId)
+	if err != nil {
 		return false
 	}
-	indexFromId, err := strconv.Atoi(parts[2])
-	if err != nil || indexFromId != skip.Index || parts[0] != strconv.Itoa(epochId) || parts[1] != leaderPubKey {
+	if blockID.Index != skip.Index || blockID.Epoch != epochId || blockID.Creator != leaderPubKey {
 		return false
 	}
 	if skip.Hash != skip.Afp.BlockHash {
@@ -604,17 +603,7 @@ func validateUpgradeSkipData(skip structures.VotingStat, epochId int, leaderPubK
 	majority := coreQuorumMajority(len(quorumMap))
 	dataToVerify := strings.Join([]string{skip.Afp.PrevBlockHash, skip.Afp.BlockId, skip.Afp.BlockHash, epochFullID}, ":")
 
-	okSignatures := 0
-	seen := make(map[string]bool)
-	for pubKey, signature := range skip.Afp.Proofs {
-		if quorumMap[pubKey] && !seen[pubKey] {
-			if cryptography.VerifySignature(dataToVerify, pubKey, signature) {
-				seen[pubKey] = true
-				okSignatures++
-			}
-		}
-	}
-	return okSignatures >= majority
+	return utils.HasVerifiedQuorumSignatures(skip.Afp.Proofs, quorumMap, dataToVerify, majority)
 }
 
 func applyLeaderFinalizationResponse(st *epochCollectionState, leaderPubKey, epochFullID, voter string, raw []byte) {

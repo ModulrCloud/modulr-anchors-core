@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
-	"strings"
 
 	"github.com/modulrcloud/modulr-anchors-core/cryptography"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
@@ -140,22 +138,20 @@ func validateProposalWithBiggerIndex(current, proposal structures.VotingStat, ep
 		return errors.New("proposal hash does not match AFP block hash")
 	}
 
-	blockParts := strings.Split(proposal.Afp.BlockId, ":")
-	if len(blockParts) != 3 {
+	blockID, err := utils.ParseBlockID(proposal.Afp.BlockId)
+	if err != nil {
 		return errors.New("invalid AFP blockId")
 	}
 
-	afpEpoch, err := strconv.Atoi(blockParts[0])
-	if err != nil || afpEpoch != epochIndex {
+	if blockID.Epoch != epochIndex {
 		return errors.New("AFP epoch mismatch")
 	}
 
-	if blockParts[1] != creator {
+	if blockID.Creator != creator {
 		return errors.New("AFP creator mismatch")
 	}
 
-	afpIndex, err := strconv.Atoi(blockParts[2])
-	if err != nil || afpIndex != proposal.Index {
+	if blockID.Index != proposal.Index {
 		return errors.New("AFP index mismatch")
 	}
 

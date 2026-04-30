@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/modulrcloud/modulr-anchors-core/cryptography"
+	"github.com/modulrcloud/modulr-anchors-core/constants"
 	"github.com/modulrcloud/modulr-anchors-core/databases"
 	"github.com/modulrcloud/modulr-anchors-core/handlers"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
@@ -234,21 +234,17 @@ func VerifyCoreAlfp(proof *structures.AggregatedLeaderFinalizationProof) bool {
 		majority = len(epochData.Quorum)
 	}
 
-	quorumMap := make(map[string]bool, len(epochData.Quorum))
-	for _, pk := range epochData.Quorum {
-		quorumMap[pk] = true
-	}
+	quorumMap := QuorumMap(epochData.Quorum)
 
 	epochFullID := epochData.EpochHash + "#" + strconv.Itoa(epochData.EpochId)
 
 	if proof.VotingStat.Index >= 0 {
-		parts := strings.Split(proof.VotingStat.Afp.BlockId, ":")
-		if len(parts) != 3 || parts[0] != strconv.Itoa(epochData.EpochId) || parts[1] != proof.Leader {
+		blockID, err := ParseBlockID(proof.VotingStat.Afp.BlockId)
+		if err != nil || blockID.Epoch != epochData.EpochId || blockID.Creator != proof.Leader {
 			return false
 		}
 
-		indexFromId, err := strconv.Atoi(parts[2])
-		if err != nil || indexFromId != proof.VotingStat.Index || proof.VotingStat.Hash != proof.VotingStat.Afp.BlockHash {
+		if blockID.Index != proof.VotingStat.Index || proof.VotingStat.Hash != proof.VotingStat.Afp.BlockHash {
 			return false
 		}
 
@@ -258,26 +254,14 @@ func VerifyCoreAlfp(proof *structures.AggregatedLeaderFinalizationProof) bool {
 	}
 
 	dataToVerify := strings.Join([]string{
-		"LEADER_FINALIZATION_PROOF",
+		constants.SigningPrefixLeaderFinalization,
 		proof.Leader,
 		strconv.Itoa(proof.VotingStat.Index),
 		proof.VotingStat.Hash,
 		epochFullID,
 	}, ":")
 
-	okSignatures := 0
-	seen := make(map[string]bool)
-
-	for pubKey, signature := range proof.Signatures {
-		if quorumMap[pubKey] && !seen[pubKey] {
-			if cryptography.VerifySignature(dataToVerify, pubKey, signature) {
-				seen[pubKey] = true
-				okSignatures++
-			}
-		}
-	}
-
-	return okSignatures >= majority
+	return HasVerifiedQuorumSignatures(proof.Signatures, quorumMap, dataToVerify, majority)
 }
 
 func verifyCoreAfp(afp *structures.AggregatedFinalizationProof, epochFullID string, quorumMap map[string]bool, majority int) bool {
@@ -288,19 +272,7 @@ func verifyCoreAfp(afp *structures.AggregatedFinalizationProof, epochFullID stri
 
 	dataThatShouldBeSigned := strings.Join([]string{afp.PrevBlockHash, afp.BlockId, afp.BlockHash, epochFullID}, ":")
 
-	okSignatures := 0
-	seen := make(map[string]bool)
-
-	for pubKey, signature := range afp.Proofs {
-		if quorumMap[pubKey] && !seen[pubKey] {
-			if cryptography.VerifySignature(dataThatShouldBeSigned, pubKey, signature) {
-				seen[pubKey] = true
-				okSignatures++
-			}
-		}
-	}
-
-	return okSignatures >= majority
+	return HasVerifiedQuorumSignatures(afp.Proofs, quorumMap, dataThatShouldBeSigned, majority)
 }
 
 // CatchUpCoreEpochRotationProofs fills the gap between the active core epoch

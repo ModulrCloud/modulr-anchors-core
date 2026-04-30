@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -197,16 +196,14 @@ loopMembers:
 			switch response.Status {
 			case "UPGRADE":
 				if response.VotingStat != nil {
-					parts := strings.Split(response.VotingStat.Afp.BlockId, ":")
-					if len(parts) == 3 {
-						if indexOfBlockInAfp, err := strconv.Atoi(parts[2]); err == nil {
-							proposalHasBiggerIndex := indexOfBlockInAfp > localVotingStat.Index
-							sameIndexes := indexOfBlockInAfp == response.VotingStat.Index
-							sameHashes := response.VotingStat.Hash == response.VotingStat.Afp.BlockHash
-							if sameIndexes && sameHashes && proposalHasBiggerIndex && utils.VerifyAggregatedFinalizationProof(&response.VotingStat.Afp, epochHandler) {
-								results <- rotationResult{votingStat: response.VotingStat}
-								return
-							}
+					blockID, err := utils.ParseBlockID(response.VotingStat.Afp.BlockId)
+					if err == nil {
+						proposalHasBiggerIndex := blockID.Index > localVotingStat.Index
+						sameIndexes := blockID.Index == response.VotingStat.Index
+						sameHashes := response.VotingStat.Hash == response.VotingStat.Afp.BlockHash
+						if sameIndexes && sameHashes && proposalHasBiggerIndex && utils.VerifyAggregatedFinalizationProof(&response.VotingStat.Afp, epochHandler) {
+							results <- rotationResult{votingStat: response.VotingStat}
+							return
 						}
 					}
 				}

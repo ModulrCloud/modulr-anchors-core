@@ -100,12 +100,6 @@ func GetCoreValidatorEndpoints(pubkey string) CoreValidatorEndpoints {
 	return coreValidatorEndpoints[pubkey]
 }
 
-// GetCoreValidatorWsUrl returns the WSS endpoint for `pubkey` from the local
-// cache. Backwards-compatible wrapper kept for existing callers.
-func GetCoreValidatorWsUrl(pubkey string) string {
-	return GetCoreValidatorEndpoints(pubkey).WssValidatorUrl
-}
-
 // ResolveCoreValidatorEndpoints returns a {pubkey: endpoints} map for `pubkeys`,
 // using the local cache first and falling back to bootstrap-node HTTP resolution
 // for the remainder. Pubkeys that cannot be resolved are simply omitted from
