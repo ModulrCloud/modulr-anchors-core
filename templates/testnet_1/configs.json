@@ -7,6 +7,7 @@
   },
 
   "DISABLE_POD_OUTBOX": true,
+  "RECOVERY_MODE": false,
 
   "INTERFACE": "0.0.0.0",
   "PORT": 7332,

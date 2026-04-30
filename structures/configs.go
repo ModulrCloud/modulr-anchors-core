@@ -10,6 +10,7 @@ type NodeLevelConfig struct {
 	WebSocketPort         int               `json:"WEBSOCKET_PORT"`
 	PointOfDistributionWS string            `json:"POINT_OF_DISTRIBUTION"`
 	DisablePoDOutbox      bool              `json:"DISABLE_POD_OUTBOX"`
+	RecoveryMode          bool              `json:"RECOVERY_MODE"`
 
 	// CoreBootstrapNodes is the list of HTTP endpoints of modulr-core nodes that
 	// the anchor can use to resolve information about the core network at runtime.

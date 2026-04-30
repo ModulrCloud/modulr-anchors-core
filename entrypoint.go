@@ -32,6 +32,13 @@ func RunAnchorsChains() {
 
 	}
 
+	if globals.CONFIGURATION.RecoveryMode {
+		utils.LogWithTime("RECOVERY_MODE enabled: starting read-only recovery HTTP API only", utils.YELLOW_COLOR)
+		globals.FLOOD_PREVENTION_FLAG_FOR_ROUTES.Store(true)
+		http_pack.CreateRecoveryHTTPServer()
+		return
+	}
+
 	// If the current epoch has a scheduled start in the future (e.g. testnet coordinated start),
 	// sleep until that moment before starting any background threads/servers.
 	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
