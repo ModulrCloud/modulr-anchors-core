@@ -9,7 +9,7 @@ import (
 
 type NamedDb struct {
 	name string
-	db   **leveldb.DB
+	db   *leveldb.DB
 }
 
 var BLOCKS, EPOCH_DATA, APPROVEMENT_THREAD_METADATA, FINALIZATION_VOTING_STATS *leveldb.DB
@@ -18,19 +18,19 @@ var BLOCKS, EPOCH_DATA, APPROVEMENT_THREAD_METADATA, FINALIZATION_VOTING_STATS *
 func CloseAll() error {
 
 	databases := []NamedDb{
-		{name: "BLOCKS", db: &BLOCKS},
-		{name: "EPOCH_DATA", db: &EPOCH_DATA},
-		{name: "APPROVEMENT_THREAD_METADATA", db: &APPROVEMENT_THREAD_METADATA},
-		{name: "FINALIZATION_VOTING_STATS", db: &FINALIZATION_VOTING_STATS},
+		{name: "BLOCKS", db: BLOCKS},
+		{name: "EPOCH_DATA", db: EPOCH_DATA},
+		{name: "APPROVEMENT_THREAD_METADATA", db: APPROVEMENT_THREAD_METADATA},
+		{name: "FINALIZATION_VOTING_STATS", db: FINALIZATION_VOTING_STATS},
 	}
 
 	var errs []error
 	for _, database := range databases {
-		if database.db == nil || *database.db == nil {
+		if database.db == nil {
 			continue
 		}
 
-		if err := (*database.db).Close(); err != nil {
+		if err := database.db.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close %s: %w", database.name, err))
 		}
 
