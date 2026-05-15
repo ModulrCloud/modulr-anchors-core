@@ -244,20 +244,21 @@ func getAggregatedEpochRotationProofFromAnchorHTTP(anchorPubkey, anchorURL strin
 		return nil
 	}
 
-	var proof structures.AggregatedEpochRotationProof
-	if json.Unmarshal(recoveryResp.Payload, &proof) != nil {
+	var payload structures.RecoveryCoreQuorumPayload
+	if json.Unmarshal(recoveryResp.Payload, &payload) != nil || payload.Proof == nil {
 		return nil
 	}
 
+	proof := payload.Proof
 	if proof.NextEpochId != targetEpochId {
 		return nil
 	}
 
-	if !utils.VerifyAggregatedEpochRotationProof(&proof) {
+	if !utils.VerifyAggregatedEpochRotationProof(proof) {
 		return nil
 	}
 
-	return &proof
+	return proof
 }
 
 func openWebsocketConnectionWithAnchorsPoD() (*websocket.Conn, error) {
