@@ -22,6 +22,11 @@ type RecoveryValidatorEndpoints struct {
 // the anchor knows for the next-epoch quorum members. The whole payload is
 // covered by the outer anchor signature in RecoverySignedResponse.Signature.
 type RecoveryCoreQuorumPayload struct {
-	Proof              *AggregatedEpochRotationProof         `json:"proof"`
-	ValidatorEndpoints map[string]RecoveryValidatorEndpoints `json:"validatorEndpoints"`
+	Proof                     *AggregatedEpochRotationProof         `json:"proof"`
+	ValidatorEndpoints        map[string]RecoveryValidatorEndpoints `json:"validatorEndpoints"`
+	RecoveryViewEpoch         int                                   `json:"recoveryViewEpoch"`
+	RecoveryViewEpochDataHash string                                `json:"recoveryViewEpochDataHash"`
+	RecoveryViewSource        string                                `json:"recoveryViewSource"`
+	RecoveryViewFromEpoch     int                                   `json:"recoveryViewFromEpoch"`
+	RecoveryViewVerifiedAtMs  int64                                 `json:"recoveryViewVerifiedAtMs"`
 }

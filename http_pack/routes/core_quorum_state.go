@@ -53,12 +53,6 @@ func GetRecoveryCoreQuorum(ctx *fasthttp.RequestCtx) {
 	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
 	ctx.SetContentType("application/json")
 
-	if utils.LoadCoreQuorumState() == nil {
-		ctx.SetStatusCode(fasthttp.StatusNotFound)
-		ctx.Write([]byte(`{"err": "Core quorum state not initialized"}`))
-		return
-	}
-
 	epochRaw := ctx.UserValue("epoch")
 	epochStr, ok := epochRaw.(string)
 	if !ok || epochStr == "" {
@@ -74,7 +68,14 @@ func GetRecoveryCoreQuorum(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	writeSignedRotationProofResponse(ctx, epochId)
+	view := getRecoveryCoreQuorumView(epochId)
+	if view == nil {
+		ctx.SetStatusCode(fasthttp.StatusNotFound)
+		ctx.Write([]byte(`{"err": "Core quorum state not initialized"}`))
+		return
+	}
+
+	writeSignedRotationProofResponse(ctx, view, epochId)
 }
 
 // GetRecoveryLatestCoreQuorum returns the latest AggregatedEpochRotationProof that
@@ -88,24 +89,24 @@ func GetRecoveryLatestCoreQuorum(ctx *fasthttp.RequestCtx) {
 	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
 	ctx.SetContentType("application/json")
 
-	state := utils.LoadCoreQuorumState()
-	if state == nil {
+	view := getRecoveryCoreQuorumView(0)
+	if view == nil {
 		ctx.SetStatusCode(fasthttp.StatusNotFound)
 		ctx.Write([]byte(`{"err": "Core quorum state not initialized"}`))
 		return
 	}
 
-	if state.LatestEpochId <= 0 {
+	if view.LatestEpochId <= 0 {
 		ctx.SetStatusCode(fasthttp.StatusNotFound)
 		ctx.Write([]byte(`{"err": "No epoch rotation proof yet (still in genesis epoch)"}`))
 		return
 	}
 
-	writeSignedRotationProofResponse(ctx, state.LatestEpochId)
+	writeSignedRotationProofResponse(ctx, view, view.LatestEpochId)
 }
 
-func writeSignedRotationProofResponse(ctx *fasthttp.RequestCtx, epochId int) {
-	proof := utils.LoadAggregatedEpochRotationProof(epochId)
+func writeSignedRotationProofResponse(ctx *fasthttp.RequestCtx, view *recoveryCoreQuorumView, epochId int) {
+	proof := recoveryViewProof(view, epochId)
 	if proof == nil {
 		ctx.SetStatusCode(fasthttp.StatusNotFound)
 		ctx.Write([]byte(`{"err": "No epoch rotation proof found for this epoch"}`))
@@ -132,8 +133,13 @@ func writeSignedRotationProofResponse(ctx *fasthttp.RequestCtx, epochId int) {
 	}
 
 	innerPayload := structures.RecoveryCoreQuorumPayload{
-		Proof:              proof,
-		ValidatorEndpoints: endpointsMap,
+		Proof:                     proof,
+		ValidatorEndpoints:        endpointsMap,
+		RecoveryViewEpoch:         proof.NextEpochId,
+		RecoveryViewEpochDataHash: proof.EpochDataHash,
+		RecoveryViewSource:        recoveryViewSource(view, epochId),
+		RecoveryViewFromEpoch:     recoveryViewFromEpoch(view),
+		RecoveryViewVerifiedAtMs:  utils.GetUTCTimestampInMilliSeconds(),
 	}
 
 	payloadBytes, err := json.Marshal(innerPayload)
@@ -160,4 +166,31 @@ func writeSignedRotationProofResponse(ctx *fasthttp.RequestCtx, epochId int) {
 
 	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.Write(respBytes)
+}
+
+func recoveryViewProof(view *recoveryCoreQuorumView, epochId int) *structures.AggregatedEpochRotationProof {
+	if view != nil {
+		if proof := view.Proofs[epochId]; proof != nil {
+			return proof
+		}
+	}
+
+	return utils.LoadAggregatedEpochRotationProof(epochId)
+}
+
+func recoveryViewSource(view *recoveryCoreQuorumView, epochId int) string {
+	if view == nil {
+		return "local"
+	}
+	if epochId > view.FromEpochId {
+		return "memory_catchup"
+	}
+	return "local"
+}
+
+func recoveryViewFromEpoch(view *recoveryCoreQuorumView) int {
+	if view == nil {
+		return 0
+	}
+	return view.FromEpochId
 }

@@ -220,7 +220,44 @@ func GetAggregatedEpochRotationProofFromAnchorsByHTTP(targetEpochId int) *struct
 	return nil
 }
 
+func GetAggregatedEpochRotationProofFromAnchorsByHTTPUnverified(targetEpochId int) *structures.AggregatedEpochRotationProof {
+	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
+	registry := append([]string(nil), handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandler().AnchorsRegistry...)
+	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
+
+	for _, anchorPubkey := range registry {
+		if anchorPubkey == globals.CONFIGURATION.PublicKey {
+			continue
+		}
+
+		anchorStorage := utils.GetAnchorFromApprovementThreadState(anchorPubkey)
+		if anchorStorage == nil || anchorStorage.AnchorUrl == "" {
+			continue
+		}
+
+		proof := getAggregatedEpochRotationProofFromAnchorHTTPUnverified(anchorPubkey, anchorStorage.AnchorUrl, targetEpochId)
+		if proof != nil {
+			return proof
+		}
+	}
+
+	return nil
+}
+
 func getAggregatedEpochRotationProofFromAnchorHTTP(anchorPubkey, anchorURL string, targetEpochId int) *structures.AggregatedEpochRotationProof {
+	proof := getAggregatedEpochRotationProofFromAnchorHTTPUnverified(anchorPubkey, anchorURL, targetEpochId)
+	if proof == nil {
+		return nil
+	}
+
+	if !utils.VerifyAggregatedEpochRotationProof(proof) {
+		return nil
+	}
+
+	return proof
+}
+
+func getAggregatedEpochRotationProofFromAnchorHTTPUnverified(anchorPubkey, anchorURL string, targetEpochId int) *structures.AggregatedEpochRotationProof {
 	resp, err := ANCHORS_HTTP_CLIENT.Get(anchorURL + "/recovery/core_quorum/" + strconv.Itoa(targetEpochId))
 	if err != nil {
 		return nil
@@ -251,10 +288,6 @@ func getAggregatedEpochRotationProofFromAnchorHTTP(anchorPubkey, anchorURL strin
 
 	proof := payload.Proof
 	if proof.NextEpochId != targetEpochId {
-		return nil
-	}
-
-	if !utils.VerifyAggregatedEpochRotationProof(proof) {
 		return nil
 	}
 

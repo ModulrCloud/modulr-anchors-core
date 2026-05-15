@@ -36,6 +36,15 @@ func BuildEpochRotationProofSigningPayload(
 }
 
 func VerifyAggregatedEpochRotationProof(proof *structures.AggregatedEpochRotationProof) bool {
+	if proof == nil {
+		return false
+	}
+
+	epochData := LoadCoreEpochData(proof.EpochId)
+	return VerifyAggregatedEpochRotationProofAgainstEpoch(proof, epochData)
+}
+
+func VerifyAggregatedEpochRotationProofAgainstEpoch(proof *structures.AggregatedEpochRotationProof, epochData *structures.CoreEpochData) bool {
 	if proof == nil || len(proof.Proofs) == 0 || proof.EpochDataHash == "" {
 		return false
 	}
@@ -49,8 +58,10 @@ func VerifyAggregatedEpochRotationProof(proof *structures.AggregatedEpochRotatio
 		return false
 	}
 
-	epochData := LoadCoreEpochData(proof.EpochId)
 	if epochData == nil || len(epochData.Quorum) == 0 {
+		return false
+	}
+	if proof.EpochId != epochData.EpochId {
 		return false
 	}
 
