@@ -194,6 +194,17 @@ func ResolveCoreValidatorWsUrls(pubkeys []string) map[string]string {
 	return out
 }
 
+// ResetCoreValidatorEndpointCacheForTest resets the process-local resolver
+// cache so tests can swap CORE_GENESIS without order-dependent behavior.
+func ResetCoreValidatorEndpointCacheForTest() {
+	coreValidatorUrlsMu.Lock()
+	defer coreValidatorUrlsMu.Unlock()
+
+	coreValidatorEndpoints = make(map[string]CoreValidatorEndpoints)
+	coreValidatorUrlsGenesis = make(map[string]struct{})
+	coreValidatorUrlsBootOnce = sync.Once{}
+}
+
 // fetchValidatorEndpointsFromBootstraps tries each bootstrap node in order and
 // returns the first non-empty response. Bootstraps that fail (network/parse
 // errors) are skipped. The returned map only contains pubkeys with at least

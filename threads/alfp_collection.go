@@ -114,6 +114,25 @@ func AlfpCollectionThread() {
 	}
 }
 
+// RunAlfpCollectionTickForTest exposes one deterministic ALFP collection pass
+// for integration-style tests that live outside the threads package.
+func RunAlfpCollectionTickForTest() {
+	runAlfpCollectionTick()
+}
+
+// ResetAlfpCollectionStateForTest clears long-lived ALFP collection state
+// between tests without touching persisted chain data.
+func ResetAlfpCollectionStateForTest() {
+	alfpCollectionMu.Lock()
+	defer alfpCollectionMu.Unlock()
+
+	for _, st := range alfpCollectionStates {
+		closeEpochCollectionStateLocked(st)
+	}
+	alfpCollectionStates = make(map[int]*epochCollectionState)
+	alfpCollectionInFlight = make(map[string]struct{})
+}
+
 func runAlfpCollectionTick() {
 	state := utils.LoadCoreQuorumState()
 	if state == nil {

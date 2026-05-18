@@ -33,6 +33,7 @@ func TestRecoveryCoreQuorumRoutes(t *testing.T) {
 	globals.CORE_GENESIS = structures.CoreGenesis{
 		Validators: []structures.CoreValidatorStorage{nextValidator},
 	}
+	utils.ResetCoreValidatorEndpointCacheForTest()
 
 	t.Run("latest returns 404 before core quorum state is initialized", func(t *testing.T) {
 		ctx := callRecoveryRoute("/recovery/latest_core_quorum", func(r *router.Router) {

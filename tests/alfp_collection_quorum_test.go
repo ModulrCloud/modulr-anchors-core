@@ -1,10 +1,9 @@
-package threads
+package tests
 
 import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -18,16 +17,16 @@ import (
 	"github.com/modulrcloud/modulr-anchors-core/globals"
 	"github.com/modulrcloud/modulr-anchors-core/handlers"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
+	"github.com/modulrcloud/modulr-anchors-core/threads"
 	"github.com/modulrcloud/modulr-anchors-core/utils"
 	"github.com/modulrcloud/modulr-anchors-core/websocket_pack"
 
 	"github.com/gorilla/websocket"
-	"github.com/syndtr/goleveldb/leveldb"
 )
 
 func TestAlfpCollectionPollsCoreQuorumWhenPodHasNoProof(t *testing.T) {
-	resetAlfpCollectionState(t)
-	databases.EPOCH_DATA = openAlfpCollectionTempDB(t, "epoch-data")
+	resetAlfpCollectionTestState(t)
+	databases.EPOCH_DATA = openTempDB(t, "epoch-data")
 
 	anchorKey := cryptography.GenerateKeyPair("", "", nil)
 	globals.CONFIGURATION.PublicKey = anchorKey.Pub
@@ -84,7 +83,7 @@ func TestAlfpCollectionPollsCoreQuorumWhenPodHasNoProof(t *testing.T) {
 		Proofs:            map[string]string{},
 	})
 
-	runAlfpCollectionTick()
+	threads.RunAlfpCollectionTickForTest()
 
 	if got := coreQuorumRequests.Load(); got != int32(len(quorum)) {
 		t.Fatalf("expected anchor to poll all %d core quorum validators, got %d requests", len(quorum), got)
@@ -204,18 +203,13 @@ func startCoreValidatorAlfpServer(
 	return httpURLToWS(server.URL)
 }
 
-func resetAlfpCollectionState(t *testing.T) {
+func resetAlfpCollectionTestState(t *testing.T) {
 	t.Helper()
 
-	alfpCollectionMu.Lock()
-	for _, st := range alfpCollectionStates {
-		closeEpochCollectionStateLocked(st)
-	}
-	alfpCollectionStates = make(map[int]*epochCollectionState)
-	alfpCollectionInFlight = make(map[string]struct{})
-	alfpCollectionMu.Unlock()
-
+	threads.ResetAlfpCollectionStateForTest()
+	utils.ResetCoreValidatorEndpointCacheForTest()
 	globals.MEMPOOL.ClearEpochProofs(1)
+
 	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.Lock()
 	handlers.APPROVEMENT_THREAD_METADATA.Handler = structures.ApprovementThreadMetadataHandler{}
 	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.Unlock()
@@ -229,23 +223,10 @@ func resetAlfpCollectionState(t *testing.T) {
 			_ = websocket_pack.ANCHORS_POD_CONNECTION.Close()
 			websocket_pack.ANCHORS_POD_CONNECTION = nil
 		}
+		utils.ResetCoreValidatorEndpointCacheForTest()
 	})
 }
 
 func httpURLToWS(rawURL string) string {
 	return "ws" + strings.TrimPrefix(rawURL, "http")
-}
-
-func openAlfpCollectionTempDB(t *testing.T, name string) *leveldb.DB {
-	t.Helper()
-
-	db, err := leveldb.OpenFile(filepath.Join(t.TempDir(), name), nil)
-	if err != nil {
-		t.Fatalf("failed to open temp db: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = db.Close()
-	})
-
-	return db
 }
