@@ -23,6 +23,15 @@ var (
 	recoveryViewCached *recoveryCoreQuorumView
 )
 
+// ResetRecoveryCoreQuorumViewForTest clears the in-memory recovery view cache
+// so tests can exercise catch-up from different external sources independently.
+func ResetRecoveryCoreQuorumViewForTest() {
+	recoveryViewMu.Lock()
+	defer recoveryViewMu.Unlock()
+
+	recoveryViewCached = nil
+}
+
 func getRecoveryCoreQuorumView(targetEpochId int) *recoveryCoreQuorumView {
 	if !recoveryViewMu.TryLock() {
 		return recoveryViewSnapshot()

@@ -2,6 +2,8 @@ package tests
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -11,11 +13,14 @@ import (
 	"github.com/modulrcloud/modulr-anchors-core/cryptography"
 	"github.com/modulrcloud/modulr-anchors-core/databases"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
+	"github.com/modulrcloud/modulr-anchors-core/handlers"
 	"github.com/modulrcloud/modulr-anchors-core/http_pack/routes"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
 	"github.com/modulrcloud/modulr-anchors-core/utils"
+	"github.com/modulrcloud/modulr-anchors-core/websocket_pack"
 
 	"github.com/fasthttp/router"
+	"github.com/gorilla/websocket"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/valyala/fasthttp"
 )
@@ -93,6 +98,94 @@ func TestRecoveryCoreQuorumRejectsInvalidEpochParameter(t *testing.T) {
 	})
 
 	assertJSONError(t, ctx, fasthttp.StatusBadRequest, "Invalid epoch parameter")
+}
+
+func TestRecoveryCoreQuorumCatchesUpFromPoD(t *testing.T) {
+	configureRecoverySigningKey(t)
+	routes.ResetRecoveryCoreQuorumViewForTest()
+	closeAnchorsPoDConnectionForRecoveryTest(t)
+	databases.EPOCH_DATA = openTempDB(t, "epoch-data")
+
+	coreValidator := cryptography.GenerateKeyPair("", "", nil)
+	nextValidator := structures.CoreValidatorStorage{
+		Pubkey:          coreValidator.Pub,
+		ValidatorUrl:    "http://core-validator",
+		WssValidatorUrl: "ws://core-validator",
+	}
+	globals.CORE_GENESIS = structures.CoreGenesis{
+		Validators: []structures.CoreValidatorStorage{nextValidator},
+	}
+	utils.ResetCoreValidatorEndpointCacheForTest()
+
+	utils.PersistCoreQuorumState(&structures.CoreQuorumState{LatestEpochId: 0})
+	utils.PersistCoreEpochData(&structures.CoreEpochData{
+		EpochId:         0,
+		EpochHash:       "epoch-0-hash",
+		Quorum:          []string{coreValidator.Pub},
+		LeadersSequence: []string{coreValidator.Pub},
+	})
+	proof := buildSignedEpochRotationProof(t, 0, 1, []cryptography.Ed25519Box{coreValidator})
+	globals.CONFIGURATION.PointOfDistributionWS = startEpochRotationProofPoDServer(t, proof)
+
+	ctx := callRecoveryRoute("/recovery/latest_core_quorum", func(r *router.Router) {
+		r.GET("/recovery/latest_core_quorum", routes.GetRecoveryLatestCoreQuorum)
+	})
+
+	assertSignedRecoveryCoreQuorum(t, ctx, proof, "memory_catchup", 0)
+}
+
+func TestRecoveryCoreQuorumCatchesUpFromPeerAnchorHTTP(t *testing.T) {
+	localAnchor := cryptography.GenerateKeyPair("", "", nil)
+	globals.CONFIGURATION.PublicKey = localAnchor.Pub
+	globals.CONFIGURATION.PrivateKey = localAnchor.Prv
+	routes.ResetRecoveryCoreQuorumViewForTest()
+	closeAnchorsPoDConnectionForRecoveryTest(t)
+	databases.EPOCH_DATA = openTempDB(t, "epoch-data")
+	databases.APPROVEMENT_THREAD_METADATA = openTempDB(t, "approvement-thread-metadata")
+
+	coreValidator := cryptography.GenerateKeyPair("", "", nil)
+	nextValidator := structures.CoreValidatorStorage{
+		Pubkey:          coreValidator.Pub,
+		ValidatorUrl:    "http://core-validator",
+		WssValidatorUrl: "ws://core-validator",
+	}
+	globals.CORE_GENESIS = structures.CoreGenesis{
+		Validators: []structures.CoreValidatorStorage{nextValidator},
+	}
+	utils.ResetCoreValidatorEndpointCacheForTest()
+
+	utils.PersistCoreQuorumState(&structures.CoreQuorumState{LatestEpochId: 0})
+	utils.PersistCoreEpochData(&structures.CoreEpochData{
+		EpochId:         0,
+		EpochHash:       "epoch-0-hash",
+		Quorum:          []string{coreValidator.Pub},
+		LeadersSequence: []string{coreValidator.Pub},
+	})
+	proof := buildSignedEpochRotationProof(t, 0, 1, []cryptography.Ed25519Box{coreValidator})
+
+	peerAnchor := cryptography.GenerateKeyPair("", "", nil)
+	peerAnchorURL := startPeerRecoveryAnchorServer(t, peerAnchor, proof)
+	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.Lock()
+	handlers.APPROVEMENT_THREAD_METADATA.Handler = structures.ApprovementThreadMetadataHandler{
+		EpochDataHandler: structures.EpochDataHandler{
+			Id:              0,
+			Hash:            "anchor-epoch-0",
+			AnchorsRegistry: []string{localAnchor.Pub, peerAnchor.Pub},
+			Quorum:          []string{localAnchor.Pub, peerAnchor.Pub},
+		},
+	}
+	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.Unlock()
+	writeAnchorStorageToApprovementDB(t, structures.AnchorStorage{
+		Pubkey:    peerAnchor.Pub,
+		AnchorUrl: peerAnchorURL,
+	})
+	globals.CONFIGURATION.PointOfDistributionWS = startEmptyAlfpPodServer(t)
+
+	ctx := callRecoveryRoute("/recovery/latest_core_quorum", func(r *router.Router) {
+		r.GET("/recovery/latest_core_quorum", routes.GetRecoveryLatestCoreQuorum)
+	})
+
+	assertSignedRecoveryCoreQuorum(t, ctx, proof, "memory_catchup", 0)
 }
 
 func buildSignedEpochRotationProof(t *testing.T, epochId, nextEpochId int, quorum []cryptography.Ed25519Box) *structures.AggregatedEpochRotationProof {
@@ -244,4 +337,105 @@ func openTempDB(t *testing.T, name string) *leveldb.DB {
 	})
 
 	return db
+}
+
+func startEpochRotationProofPoDServer(t *testing.T, proof *structures.AggregatedEpochRotationProof) string {
+	t.Helper()
+
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("failed to upgrade PoD websocket: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+			respBytes, err := json.Marshal(struct {
+				Proof *structures.AggregatedEpochRotationProof `json:"proof"`
+			}{Proof: proof})
+			if err != nil {
+				t.Errorf("failed to encode PoD response: %v", err)
+				return
+			}
+			if err := conn.WriteMessage(websocket.TextMessage, respBytes); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	return httpURLToWS(server.URL)
+}
+
+func startPeerRecoveryAnchorServer(t *testing.T, peer cryptography.Ed25519Box, proof *structures.AggregatedEpochRotationProof) string {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/recovery/core_quorum/"+strconv.Itoa(proof.NextEpochId) {
+			http.NotFound(w, r)
+			return
+		}
+
+		payloadBytes, err := json.Marshal(structures.RecoveryCoreQuorumPayload{
+			Proof: proof,
+			ValidatorEndpoints: map[string]structures.RecoveryValidatorEndpoints{
+				proof.EpochData.NextEpochQuorum[0]: {
+					ValidatorUrl:    "http://core-validator",
+					WssValidatorUrl: "ws://core-validator",
+				},
+			},
+			RecoveryViewEpoch:         proof.NextEpochId,
+			RecoveryViewEpochDataHash: proof.EpochDataHash,
+			RecoveryViewSource:        "peer_test",
+			RecoveryViewFromEpoch:     proof.EpochId,
+			RecoveryViewVerifiedAtMs:  1,
+		})
+		if err != nil {
+			t.Errorf("failed to encode peer recovery payload: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(structures.RecoverySignedResponse{
+			PubKey:    peer.Pub,
+			Payload:   payloadBytes,
+			Signature: cryptography.GenerateSignature(peer.Prv, string(payloadBytes)),
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	return server.URL
+}
+
+func writeAnchorStorageToApprovementDB(t *testing.T, storage structures.AnchorStorage) {
+	t.Helper()
+
+	raw, err := json.Marshal(storage)
+	if err != nil {
+		t.Fatalf("failed to encode anchor storage: %v", err)
+	}
+	if err := databases.APPROVEMENT_THREAD_METADATA.Put([]byte(storage.Pubkey+"_ANCHOR_STORAGE"), raw, nil); err != nil {
+		t.Fatalf("failed to store anchor storage: %v", err)
+	}
+}
+
+func closeAnchorsPoDConnectionForRecoveryTest(t *testing.T) {
+	t.Helper()
+
+	if websocket_pack.ANCHORS_POD_CONNECTION != nil {
+		_ = websocket_pack.ANCHORS_POD_CONNECTION.Close()
+		websocket_pack.ANCHORS_POD_CONNECTION = nil
+	}
+	t.Cleanup(func() {
+		if websocket_pack.ANCHORS_POD_CONNECTION != nil {
+			_ = websocket_pack.ANCHORS_POD_CONNECTION.Close()
+			websocket_pack.ANCHORS_POD_CONNECTION = nil
+		}
+		routes.ResetRecoveryCoreQuorumViewForTest()
+	})
 }
