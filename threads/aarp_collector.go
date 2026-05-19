@@ -36,6 +36,10 @@ func AnchorRotationCollectorThread() {
 
 }
 
+func RunAnchorRotationCollectorTickForTest() {
+	collectRotationProofs()
+}
+
 func collectRotationProofs() {
 
 	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
