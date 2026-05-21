@@ -4,6 +4,7 @@ const (
 	DBKeyApprovementThreadMetadata = "APPROVEMENT_THREAD_METADATA"
 	DBKeyPrefixGenerationThread    = "GENERATION_THREAD_METADATA:"
 	DBKeyPrefixEpochFinish         = "EPOCH_FINISH:"
+	DBKeyPrefixFinalizationVote    = "FINALIZATION_VOTE:"
 
 	// DBKeyPrefixAlfpIncluded marks (in EPOCH_DATA) that an ALFP for a (epochId, leader)
 	// pair has already been included in some locally generated anchor block.

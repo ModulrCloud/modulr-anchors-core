@@ -97,6 +97,15 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 				utils.VerifyAggregatedFinalizationProof(&parsedRequest.PreviousBlockAfp, epochHandler)
 
 			if isGenesis || hasValidPrevAfp {
+				voteKey := []byte(constants.DBKeyPrefixFinalizationVote + proposedBlockId)
+				if existingVote, err := databases.FINALIZATION_VOTING_STATS.Get(voteKey, nil); err == nil {
+					if string(existingVote) != proposedBlockHash {
+						return
+					}
+				} else if err := databases.FINALIZATION_VOTING_STATS.Put(voteKey, []byte(proposedBlockHash), nil); err != nil {
+					return
+				}
+
 				if localVotingDataForLeader.Index == int(parsedRequest.Block.Index) {
 					futureVotingDataToStore = localVotingDataForLeader
 				} else if isGenesis {
