@@ -197,21 +197,16 @@ func GetAggregatedEpochRotationProofFromPoD(epochId int) *structures.AggregatedE
 }
 
 func GetAggregatedEpochRotationProofFromAnchorsByHTTP(targetEpochId int) *structures.AggregatedEpochRotationProof {
-	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
-	registry := append([]string(nil), handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandler().AnchorsRegistry...)
-	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
-
-	for _, anchorPubkey := range registry {
-		if anchorPubkey == globals.CONFIGURATION.PublicKey {
+	for _, anchorStorage := range recoveryPeerAnchorsForHTTP() {
+		if anchorStorage.Pubkey == globals.CONFIGURATION.PublicKey {
 			continue
 		}
 
-		anchorStorage := utils.GetAnchorFromApprovementThreadState(anchorPubkey)
-		if anchorStorage == nil || anchorStorage.AnchorUrl == "" {
+		if anchorStorage.AnchorUrl == "" {
 			continue
 		}
 
-		proof := getAggregatedEpochRotationProofFromAnchorHTTP(anchorPubkey, anchorStorage.AnchorUrl, targetEpochId)
+		proof := getAggregatedEpochRotationProofFromAnchorHTTP(anchorStorage.Pubkey, anchorStorage.AnchorUrl, targetEpochId)
 		if proof != nil {
 			return proof
 		}
@@ -221,27 +216,65 @@ func GetAggregatedEpochRotationProofFromAnchorsByHTTP(targetEpochId int) *struct
 }
 
 func GetAggregatedEpochRotationProofFromAnchorsByHTTPUnverified(targetEpochId int) *structures.AggregatedEpochRotationProof {
-	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
-	registry := append([]string(nil), handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandler().AnchorsRegistry...)
-	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
-
-	for _, anchorPubkey := range registry {
-		if anchorPubkey == globals.CONFIGURATION.PublicKey {
+	peers := recoveryPeerAnchorsForHTTP()
+	utils.LogWithTimeThrottled(
+		"anchors_core:recovery_peer_candidates",
+		2*time.Second,
+		fmt.Sprintf("Recovery catch-up: trying %d peer anchors for epoch %d", len(peers), targetEpochId),
+		utils.YELLOW_COLOR,
+	)
+	for _, anchorStorage := range peers {
+		if anchorStorage.Pubkey == globals.CONFIGURATION.PublicKey {
 			continue
 		}
 
-		anchorStorage := utils.GetAnchorFromApprovementThreadState(anchorPubkey)
-		if anchorStorage == nil || anchorStorage.AnchorUrl == "" {
+		if anchorStorage.AnchorUrl == "" {
 			continue
 		}
 
-		proof := getAggregatedEpochRotationProofFromAnchorHTTPUnverified(anchorPubkey, anchorStorage.AnchorUrl, targetEpochId)
+		proof := getAggregatedEpochRotationProofFromAnchorHTTPUnverified(anchorStorage.Pubkey, anchorStorage.AnchorUrl, targetEpochId)
 		if proof != nil {
 			return proof
 		}
 	}
 
 	return nil
+}
+
+func recoveryPeerAnchorsForHTTP() []structures.AnchorStorage {
+	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RLock()
+	registry := append([]string(nil), handlers.APPROVEMENT_THREAD_METADATA.Handler.GetEpochHandler().AnchorsRegistry...)
+	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
+
+	seen := make(map[string]struct{}, len(registry)+len(globals.GENESIS.Anchors))
+	peers := make([]structures.AnchorStorage, 0, len(registry)+len(globals.GENESIS.Anchors))
+	for _, anchorPubkey := range registry {
+		if anchorPubkey == "" {
+			continue
+		}
+		anchorStorage := utils.GetAnchorFromApprovementThreadState(anchorPubkey)
+		if anchorStorage == nil {
+			continue
+		}
+		if _, ok := seen[anchorStorage.Pubkey]; ok {
+			continue
+		}
+		seen[anchorStorage.Pubkey] = struct{}{}
+		peers = append(peers, *anchorStorage)
+	}
+
+	for _, anchorStorage := range globals.GENESIS.Anchors {
+		if anchorStorage.Pubkey == "" {
+			continue
+		}
+		if _, ok := seen[anchorStorage.Pubkey]; ok {
+			continue
+		}
+		seen[anchorStorage.Pubkey] = struct{}{}
+		peers = append(peers, anchorStorage)
+	}
+
+	return peers
 }
 
 func getAggregatedEpochRotationProofFromAnchorHTTP(anchorPubkey, anchorURL string, targetEpochId int) *structures.AggregatedEpochRotationProof {
@@ -260,11 +293,23 @@ func getAggregatedEpochRotationProofFromAnchorHTTP(anchorPubkey, anchorURL strin
 func getAggregatedEpochRotationProofFromAnchorHTTPUnverified(anchorPubkey, anchorURL string, targetEpochId int) *structures.AggregatedEpochRotationProof {
 	resp, err := ANCHORS_HTTP_CLIENT.Get(anchorURL + "/recovery/core_quorum/" + strconv.Itoa(targetEpochId))
 	if err != nil {
+		utils.LogWithTimeThrottled(
+			"anchors_core:recovery_peer_http_error:"+anchorPubkey,
+			2*time.Second,
+			fmt.Sprintf("Recovery catch-up: peer %s request failed for epoch %d: %v", anchorPubkey, targetEpochId, err),
+			utils.YELLOW_COLOR,
+		)
 		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		utils.LogWithTimeThrottled(
+			"anchors_core:recovery_peer_http_status:"+anchorPubkey,
+			2*time.Second,
+			fmt.Sprintf("Recovery catch-up: peer %s returned HTTP %d for epoch %d", anchorPubkey, resp.StatusCode, targetEpochId),
+			utils.YELLOW_COLOR,
+		)
 		return nil
 	}
 
@@ -274,20 +319,44 @@ func getAggregatedEpochRotationProofFromAnchorHTTPUnverified(anchorPubkey, ancho
 	}
 
 	if recoveryResp.PubKey != anchorPubkey || len(recoveryResp.Payload) == 0 || recoveryResp.Signature == "" {
+		utils.LogWithTimeThrottled(
+			"anchors_core:recovery_peer_signed_response_mismatch:"+anchorPubkey,
+			2*time.Second,
+			fmt.Sprintf("Recovery catch-up: peer %s returned signed response from %s for epoch %d", anchorPubkey, recoveryResp.PubKey, targetEpochId),
+			utils.YELLOW_COLOR,
+		)
 		return nil
 	}
 
 	if !cryptography.VerifySignature(string(recoveryResp.Payload), recoveryResp.PubKey, recoveryResp.Signature) {
+		utils.LogWithTimeThrottled(
+			"anchors_core:recovery_peer_signature_invalid:"+anchorPubkey,
+			2*time.Second,
+			fmt.Sprintf("Recovery catch-up: peer %s returned invalid anchor signature for epoch %d", anchorPubkey, targetEpochId),
+			utils.YELLOW_COLOR,
+		)
 		return nil
 	}
 
 	var payload structures.RecoveryCoreQuorumPayload
 	if json.Unmarshal(recoveryResp.Payload, &payload) != nil || payload.Proof == nil {
+		utils.LogWithTimeThrottled(
+			"anchors_core:recovery_peer_payload_invalid:"+anchorPubkey,
+			2*time.Second,
+			fmt.Sprintf("Recovery catch-up: peer %s returned invalid payload for epoch %d", anchorPubkey, targetEpochId),
+			utils.YELLOW_COLOR,
+		)
 		return nil
 	}
 
 	proof := payload.Proof
 	if proof.NextEpochId != targetEpochId {
+		utils.LogWithTimeThrottled(
+			"anchors_core:recovery_peer_wrong_epoch:"+anchorPubkey,
+			2*time.Second,
+			fmt.Sprintf("Recovery catch-up: peer %s returned epoch %d, want %d", anchorPubkey, proof.NextEpochId, targetEpochId),
+			utils.YELLOW_COLOR,
+		)
 		return nil
 	}
 

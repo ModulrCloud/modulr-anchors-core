@@ -188,6 +188,53 @@ func TestRecoveryCoreQuorumCatchesUpFromPeerAnchorHTTP(t *testing.T) {
 	assertSignedRecoveryCoreQuorum(t, ctx, proof, "memory_catchup", 0)
 }
 
+func TestRecoveryCoreQuorumCatchesUpFromGenesisPeerWhenRuntimeRegistryEmpty(t *testing.T) {
+	localAnchor := cryptography.GenerateKeyPair("", "", nil)
+	globals.CONFIGURATION.PublicKey = localAnchor.Pub
+	globals.CONFIGURATION.PrivateKey = localAnchor.Prv
+	routes.ResetRecoveryCoreQuorumViewForTest()
+	closeAnchorsPoDConnectionForRecoveryTest(t)
+	databases.EPOCH_DATA = openTempDB(t, "epoch-data")
+	databases.APPROVEMENT_THREAD_METADATA = openTempDB(t, "approvement-thread-metadata")
+
+	coreValidator := cryptography.GenerateKeyPair("", "", nil)
+	nextValidator := structures.CoreValidatorStorage{
+		Pubkey:          coreValidator.Pub,
+		ValidatorUrl:    "http://core-validator",
+		WssValidatorUrl: "ws://core-validator",
+	}
+	globals.CORE_GENESIS = structures.CoreGenesis{
+		Validators: []structures.CoreValidatorStorage{nextValidator},
+	}
+	utils.ResetCoreValidatorEndpointCacheForTest()
+
+	utils.PersistCoreQuorumState(&structures.CoreQuorumState{LatestEpochId: 0})
+	utils.PersistCoreEpochData(&structures.CoreEpochData{
+		EpochId:         0,
+		EpochHash:       "epoch-0-hash",
+		Quorum:          []string{coreValidator.Pub},
+		LeadersSequence: []string{coreValidator.Pub},
+	})
+	proof := buildSignedEpochRotationProof(t, 0, 1, []cryptography.Ed25519Box{coreValidator})
+
+	peerAnchor := cryptography.GenerateKeyPair("", "", nil)
+	peerAnchorURL := startPeerRecoveryAnchorServer(t, peerAnchor, proof)
+	globals.GENESIS.Anchors = []structures.AnchorStorage{
+		{Pubkey: localAnchor.Pub, AnchorUrl: "http://local-anchor"},
+		{Pubkey: peerAnchor.Pub, AnchorUrl: peerAnchorURL},
+	}
+	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.Lock()
+	handlers.APPROVEMENT_THREAD_METADATA.Handler = structures.ApprovementThreadMetadataHandler{}
+	handlers.APPROVEMENT_THREAD_METADATA.RWMutex.Unlock()
+	globals.CONFIGURATION.PointOfDistributionWS = startEmptyAlfpPodServer(t)
+
+	ctx := callRecoveryRoute("/recovery/latest_core_quorum", func(r *router.Router) {
+		r.GET("/recovery/latest_core_quorum", routes.GetRecoveryLatestCoreQuorum)
+	})
+
+	assertSignedRecoveryCoreQuorum(t, ctx, proof, "memory_catchup", 0)
+}
+
 func TestRecoveryCoreQuorumRejectsInvalidExternalCatchUpProofs(t *testing.T) {
 	t.Run("PoD proof with tampered epoch data hash is rejected", func(t *testing.T) {
 		configureRecoverySigningKey(t)
