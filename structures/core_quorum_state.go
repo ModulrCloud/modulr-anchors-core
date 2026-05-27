@@ -10,7 +10,8 @@ type CoreEpochData struct {
 }
 
 type CoreQuorumState struct {
-	LatestEpochId int `json:"latestEpochId"`
+	LatestEpochId          int `json:"latestEpochId"`
+	LatestAnnouncedEpochId int `json:"latestAnnouncedEpochId,omitempty"`
 }
 
 type NextEpochData struct {
@@ -36,6 +37,32 @@ type AggregatedEpochRotationProof struct {
 	FinishedOnBlockId string            `json:"finishedOnBlockId"`
 	FinishedOnHash    string            `json:"finishedOnHash"`
 	Proofs            map[string]string `json:"proofs"`
+}
+
+type AggregatedEpochAnnouncementProof struct {
+	EpochId       int               `json:"epochId"`
+	NextEpochId   int               `json:"nextEpochId"`
+	EpochData     NextEpochData     `json:"epochData"`
+	EpochDataHash string            `json:"epochDataHash"`
+	Proofs        map[string]string `json:"proofs"`
+}
+
+func (eda *AggregatedEpochAnnouncementProof) UnmarshalJSON(data []byte) error {
+	type alias AggregatedEpochAnnouncementProof
+
+	var aux alias
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if aux.Proofs == nil {
+		aux.Proofs = make(map[string]string)
+	}
+
+	*eda = AggregatedEpochAnnouncementProof(aux)
+
+	return nil
 }
 
 func (eda *AggregatedEpochRotationProof) UnmarshalJSON(data []byte) error {

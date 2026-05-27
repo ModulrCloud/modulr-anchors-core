@@ -42,6 +42,15 @@ type aggregatedEpochRotationProofGetResponse struct {
 	Proof *structures.AggregatedEpochRotationProof `json:"proof"`
 }
 
+type epochAnnouncementProofGetRequest struct {
+	Route       string `json:"route"`
+	NextEpochId int    `json:"nextEpochId"`
+}
+
+type epochAnnouncementProofGetResponse struct {
+	Proof *structures.AggregatedEpochAnnouncementProof `json:"proof"`
+}
+
 // aggregatedLeaderFinalizationProofGetRequest mirrors modulr-core's
 // WsAggregatedLeaderFinalizationProofRequest. PoD answers both core and
 // anchors-core nodes with the same payload shape.
@@ -189,6 +198,30 @@ func GetAggregatedEpochRotationProofFromPoD(epochId int) *structures.AggregatedE
 	}
 
 	var resp aggregatedEpochRotationProofGetResponse
+	if json.Unmarshal(respBytes, &resp) != nil {
+		return nil
+	}
+
+	return resp.Proof
+}
+
+func GetEpochAnnouncementProofFromPoD(nextEpochId int) *structures.AggregatedEpochAnnouncementProof {
+	req := epochAnnouncementProofGetRequest{
+		Route:       constants.WsRouteGetEpochAnnouncementProofFromPoD,
+		NextEpochId: nextEpochId,
+	}
+
+	reqBytes, err := json.Marshal(req)
+	if err != nil {
+		return nil
+	}
+
+	respBytes, err := SendWebsocketMessageToAnchorsPoD(reqBytes)
+	if err != nil {
+		return nil
+	}
+
+	var resp epochAnnouncementProofGetResponse
 	if json.Unmarshal(respBytes, &resp) != nil {
 		return nil
 	}

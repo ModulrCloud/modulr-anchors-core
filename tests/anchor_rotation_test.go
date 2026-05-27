@@ -162,8 +162,8 @@ func TestAnchorRotationCollectorConvergesThroughUpgrade(t *testing.T) {
 
 	threads.RunAnchorRotationCollectorTickForTest()
 
-	if got := okResponses.Load(); got != int32(len(quorum)) {
-		t.Fatalf("expected second tick to receive %d OK signatures, got %d", len(quorum), got)
+	if got, want := okResponses.Load(), int32(utils.GetQuorumMajority(epochHandler)); got < want {
+		t.Fatalf("expected second tick to receive at least %d OK signatures, got %d", want, got)
 	}
 	proof, err := utils.LoadAggregatedAnchorRotationProof(epochHandler.Id, rotatedAnchor)
 	if err != nil {

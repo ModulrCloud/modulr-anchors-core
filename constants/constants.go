@@ -12,6 +12,8 @@ const (
 	// Format: "ALFP_INCLUDED:{epochId}:{leader}".
 	DBKeyPrefixAlfpIncluded = "ALFP_INCLUDED:"
 
+	DBKeyPrefixEpochAnnouncementProof = "EPOCH_ANNOUNCEMENT_PROOF:"
+
 	ZeroHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 )
 
@@ -20,6 +22,7 @@ const (
 // payload to verify signatures it collects from the core quorum.
 // Must stay in sync with modulr-core's constants.SigningPrefixLeaderFinalization.
 const SigningPrefixLeaderFinalization = "LEADER_FINALIZATION_PROOF"
+const SigningPrefixEpochAnnouncement = "EPOCH_ANNOUNCEMENT_PROOF"
 
 // WebSocket route names exposed by core nodes / unified PoD.
 const (
@@ -35,4 +38,6 @@ const (
 	// reconstruct an ALFP locally when modulr-core's LeaderFinalizationThread
 	// is unable to deliver one in time.
 	WsRouteGetLeaderFinalizationProof = "get_leader_finalization_proof"
+
+	WsRouteGetEpochAnnouncementProofFromPoD = "get_epoch_announcement_proof_from_pod"
 )

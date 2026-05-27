@@ -39,6 +39,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -139,7 +140,14 @@ func runAlfpCollectionTick() {
 		return
 	}
 
-	supportedEpochs := loadSupportedCoreEpochs(state.LatestEpochId)
+	catchUpCoreEpochAnnouncements(state)
+
+	latest := state.LatestEpochId
+	if state.LatestAnnouncedEpochId > latest {
+		latest = state.LatestAnnouncedEpochId
+	}
+
+	supportedEpochs := loadSupportedCoreEpochs(latest)
 	if len(supportedEpochs) == 0 {
 		return
 	}
@@ -149,6 +157,63 @@ func runAlfpCollectionTick() {
 	for _, epochData := range supportedEpochs {
 		processCoreEpochCollection(epochData)
 	}
+}
+
+func catchUpCoreEpochAnnouncements(state *structures.CoreQuorumState) {
+	if state == nil {
+		return
+	}
+	if state.LatestAnnouncedEpochId < state.LatestEpochId {
+		state.LatestAnnouncedEpochId = state.LatestEpochId
+	}
+
+	for {
+		nextEpochId := state.LatestAnnouncedEpochId + 1
+		proof := websocket_pack.GetEpochAnnouncementProofFromPoD(nextEpochId)
+		if proof == nil {
+			proof = getEpochAnnouncementProofFromCoreHTTP(nextEpochId)
+		}
+		if proof == nil || !utils.ApplyCoreEpochAnnouncementProof(proof) {
+			return
+		}
+
+		state.LatestAnnouncedEpochId = proof.NextEpochId
+		utils.LogWithTime(
+			fmt.Sprintf("Core quorum catch-up: applied early epoch announcement proof %d -> %d", proof.EpochId, proof.NextEpochId),
+			utils.CYAN_COLOR,
+		)
+	}
+}
+
+func getEpochAnnouncementProofFromCoreHTTP(nextEpochId int) *structures.AggregatedEpochAnnouncementProof {
+	prevEpochData := utils.LoadCoreEpochData(nextEpochId - 1)
+	if prevEpochData == nil || len(prevEpochData.Quorum) == 0 {
+		return nil
+	}
+
+	endpoints := utils.ResolveCoreValidatorEndpoints(prevEpochData.Quorum)
+	client := &http.Client{Timeout: 2 * time.Second}
+	for _, member := range prevEpochData.Quorum {
+		endpoint := endpoints[member]
+		if endpoint.ValidatorUrl == "" {
+			continue
+		}
+
+		url := strings.TrimRight(endpoint.ValidatorUrl, "/") + "/epoch_announcement_proof/" + strconv.Itoa(nextEpochId)
+		resp, err := client.Get(url)
+		if err != nil {
+			continue
+		}
+
+		var proof structures.AggregatedEpochAnnouncementProof
+		decodeErr := json.NewDecoder(resp.Body).Decode(&proof)
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK && decodeErr == nil {
+			return &proof
+		}
+	}
+
+	return nil
 }
 
 // loadSupportedCoreEpochs returns CoreEpochData for every core epoch currently

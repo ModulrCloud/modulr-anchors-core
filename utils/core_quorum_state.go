@@ -31,6 +31,9 @@ func LoadCoreQuorumState() *structures.CoreQuorumState {
 	if json.Unmarshal(raw, &state) != nil {
 		return nil
 	}
+	if state.LatestAnnouncedEpochId < state.LatestEpochId {
+		state.LatestAnnouncedEpochId = state.LatestEpochId
+	}
 
 	return &state
 }
@@ -74,9 +77,19 @@ func coreAggregatedEpochRotationProofKey(epochId int) []byte {
 	return []byte(fmt.Sprintf("CORE_EPOCH_ROTATION_PROOF:%d", epochId))
 }
 
+func coreEpochAnnouncementProofKey(epochId int) []byte {
+	return []byte(fmt.Sprintf("%s%d", constants.DBKeyPrefixEpochAnnouncementProof, epochId))
+}
+
 func PersistAggregatedEpochRotationProof(proof *structures.AggregatedEpochRotationProof) {
 	if raw, err := json.Marshal(proof); err == nil {
 		_ = databases.EPOCH_DATA.Put(coreAggregatedEpochRotationProofKey(proof.NextEpochId), raw, nil)
+	}
+}
+
+func PersistEpochAnnouncementProof(proof *structures.AggregatedEpochAnnouncementProof) {
+	if raw, err := json.Marshal(proof); err == nil {
+		_ = databases.EPOCH_DATA.Put(coreEpochAnnouncementProofKey(proof.NextEpochId), raw, nil)
 	}
 }
 
@@ -92,8 +105,24 @@ func LoadAggregatedEpochRotationProof(epochId int) *structures.AggregatedEpochRo
 	return &proof
 }
 
+func LoadEpochAnnouncementProof(epochId int) *structures.AggregatedEpochAnnouncementProof {
+	raw, err := databases.EPOCH_DATA.Get(coreEpochAnnouncementProofKey(epochId), nil)
+	if err != nil || len(raw) == 0 {
+		return nil
+	}
+	var proof structures.AggregatedEpochAnnouncementProof
+	if json.Unmarshal(raw, &proof) != nil {
+		return nil
+	}
+	return &proof
+}
+
 func DeleteAggregatedEpochRotationProof(epochId int) {
 	_ = databases.EPOCH_DATA.Delete(coreAggregatedEpochRotationProofKey(epochId), nil)
+}
+
+func DeleteEpochAnnouncementProof(epochId int) {
+	_ = databases.EPOCH_DATA.Delete(coreEpochAnnouncementProofKey(epochId), nil)
 }
 
 func InitCoreQuorumStateFromGenesis() *structures.CoreQuorumState {
@@ -119,7 +148,8 @@ func InitCoreQuorumStateFromGenesis() *structures.CoreQuorumState {
 	PersistCoreEpochData(epochData)
 
 	state := &structures.CoreQuorumState{
-		LatestEpochId: 0,
+		LatestEpochId:          0,
+		LatestAnnouncedEpochId: 0,
 	}
 
 	PersistCoreQuorumState(state)
@@ -157,13 +187,65 @@ func ApplyCoreAggregatedEpochRotationProof(proof *structures.AggregatedEpochRota
 		LeadersSequence: append([]string(nil), proof.EpochData.NextEpochLeadersSequence...),
 	}
 
+	if existing := LoadCoreEpochData(proof.NextEpochId); existing != nil {
+		if existing.EpochHash != newEpochData.EpochHash ||
+			!sameStringSlice(existing.Quorum, newEpochData.Quorum) ||
+			!sameStringSlice(existing.LeadersSequence, newEpochData.LeadersSequence) {
+			return false
+		}
+	}
+
 	PersistCoreEpochData(newEpochData)
 	PersistAggregatedEpochRotationProof(proof)
 
 	state.LatestEpochId = proof.NextEpochId
+	if state.LatestAnnouncedEpochId < proof.NextEpochId {
+		state.LatestAnnouncedEpochId = proof.NextEpochId
+	}
 	PersistCoreQuorumState(state)
 
 	cleanupOldCoreEpochData(state.LatestEpochId)
+
+	return true
+}
+
+func ApplyCoreEpochAnnouncementProof(proof *structures.AggregatedEpochAnnouncementProof) bool {
+	state := LoadCoreQuorumState()
+	if state == nil {
+		return false
+	}
+
+	if proof.EpochId > state.LatestAnnouncedEpochId {
+		return false
+	}
+
+	currentEpochData := LoadCoreEpochData(proof.EpochId)
+	if currentEpochData == nil || !VerifyAggregatedEpochAnnouncementProofAgainstEpoch(proof, currentEpochData) {
+		return false
+	}
+
+	newEpochData := &structures.CoreEpochData{
+		EpochId:         proof.NextEpochId,
+		EpochHash:       proof.EpochData.NextEpochHash,
+		Quorum:          proof.EpochData.NextEpochQuorum,
+		LeadersSequence: append([]string(nil), proof.EpochData.NextEpochLeadersSequence...),
+	}
+
+	if existing := LoadCoreEpochData(proof.NextEpochId); existing != nil {
+		if existing.EpochHash != newEpochData.EpochHash ||
+			!sameStringSlice(existing.Quorum, newEpochData.Quorum) ||
+			!sameStringSlice(existing.LeadersSequence, newEpochData.LeadersSequence) {
+			return false
+		}
+	}
+
+	PersistCoreEpochData(newEpochData)
+	PersistEpochAnnouncementProof(proof)
+
+	if state.LatestAnnouncedEpochId < proof.NextEpochId {
+		state.LatestAnnouncedEpochId = proof.NextEpochId
+	}
+	PersistCoreQuorumState(state)
 
 	return true
 }
@@ -207,10 +289,23 @@ func cleanupOldCoreEpochData(latestEpochId int) {
 		}
 		DeleteCoreEpochData(epochId)
 		DeleteAggregatedEpochRotationProof(epochId)
+		DeleteEpochAnnouncementProof(epochId)
 		// Inclusion markers are keyed by the core epoch ID and become useless
 		// once the core epoch leaves the supported window.
 		DeleteAlfpInclusionMarkersForEpoch(epochId)
 	}
+}
+
+func sameStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // VerifyCoreAlfp performs full cryptographic verification of an ALFP from modulr-core.
