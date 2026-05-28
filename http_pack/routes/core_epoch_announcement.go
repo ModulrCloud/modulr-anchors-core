@@ -2,6 +2,7 @@ package routes
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/modulrcloud/modulr-anchors-core/structures"
 	"github.com/modulrcloud/modulr-anchors-core/utils"
@@ -30,6 +31,11 @@ func AcceptCoreEpochAnnouncementProof(ctx *fasthttp.RequestCtx) {
 		ctx.Write([]byte(`{"err":"epoch announcement proof verification failed"}`))
 		return
 	}
+
+	utils.LogWithTime(
+		fmt.Sprintf("Core quorum catch-up: applied early epoch announcement proof %d -> %d", req.Proof.EpochId, req.Proof.NextEpochId),
+		utils.CYAN_COLOR,
+	)
 
 	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.Write([]byte(`{"accepted":1}`))
