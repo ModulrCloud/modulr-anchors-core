@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/modulrcloud/modulr-anchors-core/block_pack"
+	"github.com/modulrcloud/modulr-anchors-core/constants"
 	"github.com/modulrcloud/modulr-anchors-core/cryptography"
 	"github.com/modulrcloud/modulr-anchors-core/databases"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
@@ -96,6 +97,15 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 				utils.VerifyAggregatedFinalizationProof(&parsedRequest.PreviousBlockAfp, epochHandler)
 
 			if isGenesis || hasValidPrevAfp {
+				voteKey := []byte(constants.DBKeyPrefixFinalizationVote + proposedBlockId)
+				if existingVote, err := databases.FINALIZATION_VOTING_STATS.Get(voteKey, nil); err == nil {
+					if string(existingVote) != proposedBlockHash {
+						return
+					}
+				} else if err := databases.FINALIZATION_VOTING_STATS.Put(voteKey, []byte(proposedBlockHash), nil); err != nil {
+					return
+				}
+
 				if localVotingDataForLeader.Index == int(parsedRequest.Block.Index) {
 					futureVotingDataToStore = localVotingDataForLeader
 				} else if isGenesis {
@@ -143,7 +153,7 @@ func GetFinalizationProof(parsedRequest WsFinalizationProofRequest, connection *
 
 							if parsedRequest.Block.Index == 0 {
 
-								prevBlockHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+								prevBlockHash = constants.ZeroHash
 
 							} else {
 
@@ -196,34 +206,24 @@ func GetBlockWithAggregatedFinalizationProof(parsedRequest WsBlockWithAfpRequest
 
 			// Now try to get AFP for block
 
-			parts := strings.Split(parsedRequest.BlockId, ":")
+			blockID, err := utils.ParseBlockID(parsedRequest.BlockId)
 
-			if len(parts) > 0 {
+			if err == nil {
 
-				last := parts[len(parts)-1]
+				nextBlockId := utils.FormatBlockID(blockID.Epoch, blockID.Creator, blockID.Index+1)
 
-				if idx, err := strconv.ParseUint(last, 10, 64); err == nil {
+				// Remark: To make sure block with index X is 100% approved we need to get the AFP for next block
 
-					parts[len(parts)-1] = strconv.FormatUint(idx+1, 10)
+				if afpBytes, err := databases.EPOCH_DATA.Get([]byte("AFP:"+nextBlockId), nil); err == nil {
 
-					nextBlockId := strings.Join(parts, ":")
+					var afp structures.AggregatedFinalizationProof
 
-					// Remark: To make sure block with index X is 100% approved we need to get the AFP for next block
+					if err := json.Unmarshal(afpBytes, &afp); err == nil {
 
-					if afpBytes, err := databases.EPOCH_DATA.Get([]byte("AFP:"+nextBlockId), nil); err == nil {
-
-						var afp structures.AggregatedFinalizationProof
-
-						if err := json.Unmarshal(afpBytes, &afp); err == nil {
-
-							resp.Afp = &afp
-
-						}
-
+						resp.Afp = &afp
 					}
 
 				}
-
 			}
 
 			jsonResponse, err := json.Marshal(resp)
@@ -298,6 +298,37 @@ func GetVotingStat(parsedRequest WsVotingStatRequest, connection *gws.Conn) {
 	}
 	if b, err := json.Marshal(resp); err == nil {
 		connection.WriteMessage(gws.OpcodeText, b)
+	}
+}
+
+func AcceptAggregatedEpochRotationProof(parsedRequest WsAcceptAggregatedEpochRotationProofRequest, connection *gws.Conn) {
+	if !globals.FLOOD_PREVENTION_FLAG_FOR_ROUTES.Load() {
+		return
+	}
+
+	proof := &parsedRequest.Proof
+
+	if !utils.VerifyAggregatedEpochRotationProof(proof) {
+		errResp := WsAggregatedEpochRotationProofAckResponse{Status: "ERROR"}
+		if data, err := json.Marshal(errResp); err == nil {
+			connection.WriteMessage(gws.OpcodeText, data)
+		}
+		return
+	}
+
+	utils.PersistAggregatedEpochRotationProof(proof)
+
+	dataToSign := "ANCHOR_EPOCH_ACK_PROOF:" + strconv.Itoa(proof.EpochId) + ":" + strconv.Itoa(proof.NextEpochId) + ":" + proof.EpochDataHash
+	sig := cryptography.GenerateSignature(globals.CONFIGURATION.PrivateKey, dataToSign)
+
+	resp := WsAggregatedEpochRotationProofAckResponse{
+		Status:    "OK",
+		Anchor:    globals.CONFIGURATION.PublicKey,
+		Signature: sig,
+	}
+
+	if jsonResp, err := json.Marshal(resp); err == nil {
+		connection.WriteMessage(gws.OpcodeText, jsonResp)
 	}
 }
 

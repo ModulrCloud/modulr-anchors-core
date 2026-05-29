@@ -22,6 +22,10 @@ type AcceptLeaderFinalizationProofRequest struct {
 	LeaderFinalizations []AggregatedLeaderFinalizationProof `json:"leaderFinalizations"`
 }
 
+type AcceptEpochAnnouncementProofRequest struct {
+	Proof AggregatedEpochAnnouncementProof `json:"proof"`
+}
+
 type AcceptProofResponse struct {
 	Accepted int `json:"accepted"`
 }

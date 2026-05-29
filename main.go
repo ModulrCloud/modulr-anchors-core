@@ -47,6 +47,22 @@ func main() {
 
 	}
 
+	//_________________________________________________READ CORE GENESIS____________________________________________________
+
+	coreGenesisRawJson, readError := os.ReadFile(globals.CHAINDATA_PATH + "/core_genesis.json")
+
+	if readError != nil {
+
+		panic("Error while reading core genesis: " + readError.Error())
+
+	}
+
+	if err := json.Unmarshal(coreGenesisRawJson, &globals.CORE_GENESIS); err != nil {
+
+		panic("Error with core genesis parsing: " + err.Error())
+
+	}
+
 	username := "unknown"
 	if currentUser, err := user.Current(); err == nil {
 		username = currentUser.Username

@@ -3,10 +3,8 @@ package utils
 import (
 	"fmt"
 	"slices"
-	"strconv"
-	"strings"
 
-	"github.com/modulrcloud/modulr-anchors-core/cryptography"
+	"github.com/modulrcloud/modulr-anchors-core/constants"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
 )
 
@@ -17,13 +15,24 @@ func BuildAnchorRotationProofPayload(anchor string, blockIndex int, blockHash st
 
 func VerifyAggregatedAnchorRotationProof(proof *structures.AggregatedAnchorRotationProof, epochHandler *structures.EpochDataHandler) error {
 
-	if proof.VotingStat.Afp.BlockId == "" {
-		return fmt.Errorf("missing AFP blockId")
-	}
 	if !slices.Contains(epochHandler.AnchorsRegistry, proof.Anchor) {
 		return fmt.Errorf("anchor %s not found in epoch %d", proof.Anchor, epochHandler.Id)
 	}
-	expectedBlockId := fmt.Sprintf("%d:%s:%d", proof.EpochIndex, proof.Anchor, proof.VotingStat.Index)
+
+	if proof.VotingStat.Index == -1 {
+		if proof.VotingStat.Hash != constants.ZeroHash {
+			return fmt.Errorf("empty voting stat hash mismatch")
+		}
+		if proof.VotingStat.Afp.BlockId != "" {
+			return fmt.Errorf("empty voting stat must not include AFP")
+		}
+		return verifyAnchorRotationProofSignatures(proof, epochHandler)
+	}
+
+	if proof.VotingStat.Afp.BlockId == "" {
+		return fmt.Errorf("missing AFP blockId")
+	}
+	expectedBlockId := FormatBlockID(proof.EpochIndex, proof.Anchor, proof.VotingStat.Index)
 	if proof.VotingStat.Afp.BlockId != expectedBlockId {
 		return fmt.Errorf("AFP blockId mismatch")
 	}
@@ -31,39 +40,18 @@ func VerifyAggregatedAnchorRotationProof(proof *structures.AggregatedAnchorRotat
 		return fmt.Errorf("AFP block hash mismatch")
 	}
 
-	blockParts := strings.Split(proof.VotingStat.Afp.BlockId, ":")
-
-	afpIndex, err := strconv.Atoi(blockParts[2])
-
-	if err != nil || afpIndex != proof.VotingStat.Index {
+	blockID, err := ParseBlockID(proof.VotingStat.Afp.BlockId)
+	if err != nil || blockID.Index != proof.VotingStat.Index {
 		return fmt.Errorf("AFP index mismatch")
 	}
 
+	return verifyAnchorRotationProofSignatures(proof, epochHandler)
+}
+
+func verifyAnchorRotationProofSignatures(proof *structures.AggregatedAnchorRotationProof, epochHandler *structures.EpochDataHandler) error {
 	dataToVerify := BuildAnchorRotationProofPayload(proof.Anchor, proof.VotingStat.Index, proof.VotingStat.Hash, proof.EpochIndex)
 
-	quorumMap := make(map[string]bool, len(epochHandler.Quorum))
-	for _, pk := range epochHandler.Quorum {
-		quorumMap[pk] = true
-	}
-
-	verified := 0
-	seen := make(map[string]struct{})
-	for voter, signature := range proof.Signatures {
-		if signature == "" {
-			continue
-		}
-		if _, dup := seen[voter]; dup {
-			continue
-		}
-		if !quorumMap[voter] {
-			continue
-		}
-		if !cryptography.VerifySignature(dataToVerify, voter, signature) {
-			continue
-		}
-		seen[voter] = struct{}{}
-		verified++
-	}
+	verified := CountVerifiedQuorumSignatures(proof.Signatures, QuorumMap(epochHandler.Quorum), dataToVerify)
 
 	majority := GetQuorumMajority(epochHandler)
 	if verified < majority {

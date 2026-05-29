@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/modulrcloud/modulr-anchors-core/constants"
 	"github.com/modulrcloud/modulr-anchors-core/databases"
 	"github.com/modulrcloud/modulr-anchors-core/handlers"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
@@ -94,7 +95,7 @@ func EpochStillFresh(epochHandler *structures.EpochDataHandler, networkParams *s
 
 func SignalAboutEpochRotationExists(epochIndex int) bool {
 
-	keyValue := []byte("EPOCH_FINISH:" + strconv.Itoa(epochIndex))
+	keyValue := []byte(constants.DBKeyPrefixEpochFinish + strconv.Itoa(epochIndex))
 
 	if readyToChangeEpochRaw, err := databases.EPOCH_DATA.Get(keyValue, nil); err == nil && string(readyToChangeEpochRaw) == "TRUE" {
 

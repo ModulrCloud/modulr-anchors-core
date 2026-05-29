@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strconv"
-	"strings"
 
 	"github.com/modulrcloud/modulr-anchors-core/block_pack"
 	"github.com/modulrcloud/modulr-anchors-core/databases"
@@ -83,15 +81,11 @@ func buildAarpInclusionReceiptIfAvailable(epochIndex int, receiverAnchor string,
 	}
 
 	// Parse block index and compute nextBlockId (AFP for next block proves this block is approved).
-	parts := strings.Split(blockId, ":")
-	if len(parts) != 3 {
+	parsedBlockID, convErr := utils.ParseBlockID(blockId)
+	if convErr != nil || parsedBlockID.Index < 0 {
 		return structures.AarpInclusionReceipt{}, false
 	}
-	idx, convErr := strconv.Atoi(parts[2])
-	if convErr != nil || idx < 0 {
-		return structures.AarpInclusionReceipt{}, false
-	}
-	nextBlockId := parts[0] + ":" + parts[1] + ":" + strconv.Itoa(idx+1)
+	nextBlockId := utils.FormatBlockID(parsedBlockID.Epoch, parsedBlockID.Creator, parsedBlockID.Index+1)
 
 	// Load the block itself and ensure it really contains a valid AARP targeting rotatedAnchor.
 	blockBytes, bErr := databases.BLOCKS.Get([]byte(blockId), nil)

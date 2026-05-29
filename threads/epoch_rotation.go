@@ -5,11 +5,13 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/modulrcloud/modulr-anchors-core/constants"
 	"github.com/modulrcloud/modulr-anchors-core/databases"
 	"github.com/modulrcloud/modulr-anchors-core/globals"
 	"github.com/modulrcloud/modulr-anchors-core/handlers"
 	"github.com/modulrcloud/modulr-anchors-core/structures"
 	"github.com/modulrcloud/modulr-anchors-core/utils"
+	"github.com/modulrcloud/modulr-anchors-core/websocket_pack"
 
 	"github.com/syndtr/goleveldb/leveldb"
 )
@@ -27,6 +29,8 @@ func EpochRotationThread() {
 		networkParams := handlerCopy.GetNetworkParams()
 
 		handlers.APPROVEMENT_THREAD_METADATA.RWMutex.RUnlock()
+
+		syncActiveCoreEpochToLocalEpoch(currentEpoch.Id)
 
 		if currentEpoch.Hash == "" {
 			time.Sleep(200 * time.Millisecond)
@@ -96,7 +100,7 @@ func EpochRotationThread() {
 
 			handlerRef.SupportedEpochs = handlerRef.SupportedEpochs[1:]
 
-			keyValue := []byte("EPOCH_FINISH:" + strconv.Itoa(dropped.Id))
+			keyValue := []byte(constants.DBKeyPrefixEpochFinish + strconv.Itoa(dropped.Id))
 
 			if err := databases.EPOCH_DATA.Put(keyValue, []byte("TRUE"), nil); err != nil {
 				panic("Failed to mark epoch as finished: " + err.Error())
@@ -114,7 +118,7 @@ func EpochRotationThread() {
 			DeleteHealthConnectionsForEpoch(dropped.Id)
 			utils.ClearAggregatedAnchorRotationProofCache(dropped.Id)
 
-			if err := databases.BLOCKS.Delete([]byte("GT:"+epochFullID), nil); err != nil {
+			if err := databases.BLOCKS.Delete([]byte(constants.DBKeyPrefixGenerationThread+epochFullID), nil); err != nil {
 				utils.LogWithTime("Failed to delete generation metadata: "+err.Error(), utils.RED_COLOR)
 			}
 
@@ -124,7 +128,7 @@ func EpochRotationThread() {
 
 		jsonedHandler, _ := json.Marshal(handlerRef)
 
-		atomicBatch.Put([]byte("AT"), jsonedHandler)
+		atomicBatch.Put([]byte(constants.DBKeyApprovementThreadMetadata), jsonedHandler)
 
 		if batchCommitErr := databases.APPROVEMENT_THREAD_METADATA.Write(atomicBatch, nil); batchCommitErr != nil {
 			panic("Error with writing batch to approvement thread db. Try to launch again")
@@ -138,4 +142,33 @@ func EpochRotationThread() {
 
 	}
 
+}
+
+func syncActiveCoreEpochToLocalEpoch(targetEpochId int) {
+	if targetEpochId < 0 {
+		return
+	}
+
+	state := utils.LoadCoreQuorumState()
+	if state == nil || state.LatestEpochId >= targetEpochId {
+		return
+	}
+
+	applied := utils.CatchUpCoreEpochRotationProofs(targetEpochId, fetchCoreAggregatedEpochRotationProofForCatchUp)
+	if applied > 0 {
+		utils.LogWithTime(
+			"Core quorum state synced to local anchors epoch "+strconv.Itoa(targetEpochId),
+			utils.CYAN_COLOR,
+		)
+	}
+}
+
+func fetchCoreAggregatedEpochRotationProofForCatchUp(epochId int) *structures.AggregatedEpochRotationProof {
+	if proof := websocket_pack.GetAggregatedEpochRotationProofFromPoD(epochId); proof != nil {
+		return proof
+	}
+
+	// PoD stores attestations by source epoch N, while anchors expose them by
+	// the introduced epoch N+1 via /recovery/core_quorum/{epoch}.
+	return websocket_pack.GetAggregatedEpochRotationProofFromAnchorsByHTTP(epochId + 1)
 }

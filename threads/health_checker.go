@@ -311,7 +311,7 @@ func closeHealthWsPool(pool *healthWsPool) {
 	for _, c := range pool.connections {
 		if c != nil {
 			_ = c.Close()
-			pool.guards.WriteMu.Delete(c)
+			utils.ScheduleWriteMuCleanup(pool.guards, c)
 		}
 	}
 	pool.guards.ConnMu.Unlock()

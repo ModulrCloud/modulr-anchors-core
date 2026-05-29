@@ -46,3 +46,18 @@ type WsVotingStatResponse struct {
 	VotingStat structures.VotingStat `json:"votingStat"`
 	Error      string                `json:"error,omitempty"`
 }
+
+type WsAcceptAggregatedEpochRotationProofRequest struct {
+	Route string                                  `json:"route"`
+	Proof structures.AggregatedEpochRotationProof `json:"proof"`
+}
+
+type WsAggregatedEpochRotationProofAckResponse struct {
+	Status    string `json:"status"`
+	Anchor    string `json:"anchor,omitempty"`
+	Signature string `json:"signature,omitempty"`
+}
+
+type WsStatusResponse struct {
+	Status string `json:"status"`
+}

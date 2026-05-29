@@ -16,14 +16,46 @@ type WebsocketGuards struct {
 	ConnMu *sync.RWMutex
 	// WriteMu keys are *websocket.Conn and values are *sync.Mutex.
 	// This guarantees a single writer per actual websocket connection, regardless of id/pubkey mapping.
+	//
+	// IMPORTANT: We never delete entries synchronously to avoid the following race:
+	//   1. Goroutine A loads mutex M for connection C via getWriteMuConn.
+	//   2. Goroutine B (on error) deletes M from the map.
+	//   3. Goroutine C calls getWriteMuConn(C) and LoadOrStores a brand-new M2.
+	//   4. A locks M, C locks M2, both now write to the same conn C concurrently
+	//      → gorilla/websocket panics.
+	// All deletes go through ScheduleWriteMuCleanup which waits writeMuCleanupDelay
+	// before actually removing the entry, giving any in-flight goroutine time to
+	// finish its Write/Read round first.
 	WriteMu *sync.Map
 }
+
+// writeMuCleanupDelay is how long we wait before removing a closed conn's
+// WriteMu entry. Must exceed the longest possible in-flight request window
+// on that conn (QuorumWaiter uses a 1s read deadline after the write, so
+// ~3s is a comfortable safety margin).
+const writeMuCleanupDelay = 3 * time.Second
 
 func NewWebsocketGuards() *WebsocketGuards {
 	return &WebsocketGuards{
 		ConnMu:  &sync.RWMutex{},
 		WriteMu: &sync.Map{},
 	}
+}
+
+// ScheduleWriteMuCleanup removes the per-connection mutex entry from
+// guards.WriteMu after writeMuCleanupDelay, giving any in-flight goroutine
+// time to finish its Write/Read round before we drop the mutex. See the
+// WriteMu field comment for why a direct Delete is unsafe.
+//
+// Nil-safe: no-ops when guards, WriteMu or conn is nil.
+func ScheduleWriteMuCleanup(guards *WebsocketGuards, conn *websocket.Conn) {
+	if guards == nil || guards.WriteMu == nil || conn == nil {
+		return
+	}
+	go func(writeMu *sync.Map, c *websocket.Conn) {
+		time.Sleep(writeMuCleanupDelay)
+		writeMu.Delete(c)
+	}(guards.WriteMu, conn)
 }
 
 type QuorumWaiter struct {
@@ -43,13 +75,50 @@ type QuorumResponse struct {
 	msg []byte
 }
 
+// OpenWebsocketConnectionsWithUrlMap opens WS connections to a set of remote
+// nodes addressed by `pubkey` using a caller-provided `pubkey -> wssUrl` map.
+// Pubkeys with no URL in the map (or an empty URL) are skipped. Existing
+// entries in `wsConnMap` are closed and replaced atomically under guards.
+//
+// This is the generic counterpart to OpenWebsocketConnectionsWithQuorum:
+// the latter is hard-coded to anchor storage lookups, while this one lets the
+// caller supply URLs from any source (e.g. CORE_GENESIS + bootstrap HTTP
+// resolution for core validators when collecting ALFPs).
+func OpenWebsocketConnectionsWithUrlMap(pubkeys []string, urlByPubkey map[string]string, wsConnMap map[string]*websocket.Conn, guards *WebsocketGuards) {
+	guards.ConnMu.Lock()
+	for id, conn := range wsConnMap {
+		if conn != nil {
+			_ = conn.Close()
+			ScheduleWriteMuCleanup(guards, conn)
+		}
+		delete(wsConnMap, id)
+	}
+	guards.ConnMu.Unlock()
+
+	for _, pubkey := range pubkeys {
+		url := urlByPubkey[pubkey]
+		if url == "" {
+			continue
+		}
+
+		conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+		if err != nil {
+			continue
+		}
+
+		guards.ConnMu.Lock()
+		wsConnMap[pubkey] = conn
+		guards.ConnMu.Unlock()
+	}
+}
+
 func OpenWebsocketConnectionsWithQuorum(quorum []string, wsConnMap map[string]*websocket.Conn, guards *WebsocketGuards) {
 	// Close and remove any existing connections
 	guards.ConnMu.Lock()
 	for id, conn := range wsConnMap {
 		if conn != nil {
 			_ = conn.Close()
-			guards.WriteMu.Delete(conn)
+			ScheduleWriteMuCleanup(guards, conn)
 		}
 		delete(wsConnMap, id)
 	}
@@ -389,13 +458,16 @@ func reconnectOnce(pubkey string, wsConnMap map[string]*websocket.Conn, guards *
 
 	// Store back into the shared map under lock
 	guards.ConnMu.Lock()
-	if old := wsConnMap[pubkey]; old != nil {
+	old := wsConnMap[pubkey]
+	if old != nil {
 		_ = old.Close()
-		guards.WriteMu.Delete(old)
 	}
 	wsConnMap[pubkey] = conn
 	guards.ConnMu.Unlock()
 
+	if old != nil {
+		ScheduleWriteMuCleanup(guards, old)
+	}
 }
 
 func (qw *QuorumWaiter) reconnectFailed(wsConnMap map[string]*websocket.Conn) {
@@ -446,7 +518,7 @@ func (qw *QuorumWaiter) sendMessages(targets []string, msg []byte, wsConnMap map
 				_ = c.Close()
 				delete(wsConnMap, id)
 				qw.guards.ConnMu.Unlock()
-				qw.guards.WriteMu.Delete(c)
+				ScheduleWriteMuCleanup(qw.guards, c)
 				return
 			}
 
@@ -464,7 +536,7 @@ func (qw *QuorumWaiter) sendMessages(targets []string, msg []byte, wsConnMap map
 				_ = c.Close()
 				delete(wsConnMap, id)
 				qw.guards.ConnMu.Unlock()
-				qw.guards.WriteMu.Delete(c)
+				ScheduleWriteMuCleanup(qw.guards, c)
 				return
 			}
 

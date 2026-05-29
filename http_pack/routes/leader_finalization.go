@@ -60,6 +60,10 @@ func storeAggregatedLeaderFinalizationFromRequest(proof structures.AggregatedLea
 		return fmt.Errorf("epoch %d is not in supported window", proof.EpochIndex)
 	}
 
+	if !utils.VerifyCoreAlfp(&proof) {
+		return fmt.Errorf("ALFP cryptographic verification failed (no core epoch data for epoch %d or invalid signatures)", proof.EpochIndex)
+	}
+
 	globals.MEMPOOL.AddAggregatedLeaderFinalizationProof(proof)
 	return nil
 }

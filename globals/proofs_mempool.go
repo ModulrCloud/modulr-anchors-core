@@ -124,6 +124,69 @@ func (mempool *Mempool) RemoveEpochMempool(epochIndex int) {
 	delete(mempool.epochMempools, epochIndex)
 }
 
+// HasLeaderFinalizationProof reports whether an ALFP for (epochIndex, leader)
+// is currently sitting in the mempool waiting to be included in a block.
+// Used by AlfpProactivePullThread to avoid re-pulling a proof we already have.
+func (mempool *Mempool) HasLeaderFinalizationProof(epochIndex int, leader string) bool {
+	pool := mempool.getEpochMempool(epochIndex)
+
+	pool.Lock()
+	defer pool.Unlock()
+
+	for _, proof := range pool.aggregatedLeaderFinalizationProofs {
+		if proof.Leader == leader {
+			return true
+		}
+	}
+	return false
+}
+
+// RestoreAggregatedLeaderFinalizationProofs re-inserts proofs that were drained
+// but failed to be persisted (e.g. block serialization or DB write failure).
+// Existing entries with a higher voting-stat index for the same (leader, ...) key
+// take precedence — we never downgrade the cached proof.
+func (mempool *Mempool) RestoreAggregatedLeaderFinalizationProofs(epochIndex int, proofs []structures.AggregatedLeaderFinalizationProof) {
+	if len(proofs) == 0 {
+		return
+	}
+	pool := mempool.getEpochMempool(epochIndex)
+
+	pool.Lock()
+	defer pool.Unlock()
+
+	for _, proof := range proofs {
+		key := leaderMempoolKey(proof)
+		if existing, ok := pool.aggregatedLeaderFinalizationProofs[key]; ok {
+			if existing.VotingStat.Index >= proof.VotingStat.Index {
+				continue
+			}
+		}
+		pool.aggregatedLeaderFinalizationProofs[key] = proof
+	}
+}
+
+// RestoreAggregatedAnchorRotationProofs is the AARP counterpart of
+// RestoreAggregatedLeaderFinalizationProofs.
+func (mempool *Mempool) RestoreAggregatedAnchorRotationProofs(epochIndex int, proofs []structures.AggregatedAnchorRotationProof) {
+	if len(proofs) == 0 {
+		return
+	}
+	pool := mempool.getEpochMempool(epochIndex)
+
+	pool.Lock()
+	defer pool.Unlock()
+
+	for _, proof := range proofs {
+		key := anchorMempoolKey(proof)
+		if existing, ok := pool.aggregatedAnchorRotationProofs[key]; ok {
+			if existing.VotingStat.Index >= proof.VotingStat.Index {
+				continue
+			}
+		}
+		pool.aggregatedAnchorRotationProofs[key] = proof
+	}
+}
+
 func (mempool *Mempool) DrainAggregatedLeaderFinalizationProofs(epochIndex int) []structures.AggregatedLeaderFinalizationProof {
 
 	pool := mempool.getEpochMempool(epochIndex)

@@ -30,17 +30,40 @@ func createRouter() fasthttp.RequestHandler {
 
 	// Route to accept ALFP (Aggregated Leader Finalization Proof) from modulr-core logic, put to mempool and include to blocks
 	r.POST("/accept_aggregated_leader_finalization_proof", routes.AcceptAggregatedLeaderFinalizationProof)
+	r.POST("/accept_core_epoch_announcement_proof", routes.AcceptCoreEpochAnnouncementProof)
+
+	// Core quorum state
+	r.GET("/core/quorum_state", routes.GetCoreQuorumState)
 
 	return r.Handler
 }
 
-func CreateHTTPServer() {
+func createRecoveryRouter() fasthttp.RequestHandler {
+	r := router.New()
+
+	// Recovery/read-only routes. RECOVERY_MODE must not expose anchor proof
+	// signing/acceptance routes or any consensus websocket server.
+	r.GET("/recovery/core_quorum/{epoch}", routes.GetRecoveryCoreQuorum)
+	r.GET("/recovery/latest_core_quorum", routes.GetRecoveryLatestCoreQuorum)
+
+	return r.Handler
+}
+
+func listen(handler fasthttp.RequestHandler, mode string) {
 
 	serverAddr := globals.CONFIGURATION.Interface + ":" + strconv.Itoa(globals.CONFIGURATION.Port)
 
-	utils.LogWithTime(fmt.Sprintf("Server is starting at http://%s ...✅", serverAddr), utils.CYAN_COLOR)
+	utils.LogWithTime(fmt.Sprintf("%s server is starting at http://%s ...✅", mode, serverAddr), utils.CYAN_COLOR)
 
-	if err := fasthttp.ListenAndServe(serverAddr, createRouter()); err != nil {
+	if err := fasthttp.ListenAndServe(serverAddr, handler); err != nil {
 		utils.LogWithTime(fmt.Sprintf("Error in server: %s", err), utils.RED_COLOR)
 	}
+}
+
+func CreateHTTPServer() {
+	listen(createRouter(), "Server")
+}
+
+func CreateRecoveryHTTPServer() {
+	listen(createRecoveryRouter(), "Recovery")
 }
