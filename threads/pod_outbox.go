@@ -12,6 +12,6 @@ func AnchorsPoDOutboxThread() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		_ = websocket_pack.FlushAnchorsPoDOutboxOnce(50)
+		_ = websocket_pack.FlushAnchorsPoDOutboxOnce(10)
 	}
 }

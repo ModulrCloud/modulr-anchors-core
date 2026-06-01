@@ -120,6 +120,7 @@ func runFinalizationProofsGrabbing(epochHandler *structures.EpochDataHandler, ru
 	}
 
 	blockHash := blockToShare.GetHash()
+	websocket_pack.SendBlockAndAfpToAnchorsPoD(blockToShare, &previousAfp)
 
 	// Record hunting markers (quick, under lock).
 	runtime.Lock()

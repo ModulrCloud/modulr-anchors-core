@@ -99,8 +99,17 @@ type epochCollectionState struct {
 }
 
 var (
-	alfpCollectionMu     sync.Mutex
-	alfpCollectionStates = make(map[int]*epochCollectionState)
+	alfpCollectionMu         sync.Mutex
+	alfpCollectionStates     = make(map[int]*epochCollectionState)
+	alfpCollectionHTTPClient = &http.Client{
+		Timeout: 2 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        32,
+			MaxIdleConnsPerHost: 4,
+			MaxConnsPerHost:     4,
+			IdleConnTimeout:     30 * time.Second,
+		},
+	}
 	// alfpCollectionInFlight prevents two ticks from running collection for
 	// the same (epoch, leader) concurrently.
 	alfpCollectionInFlight = make(map[string]struct{})
@@ -192,7 +201,6 @@ func getEpochAnnouncementProofFromCoreHTTP(nextEpochId int) *structures.Aggregat
 	}
 
 	endpoints := utils.ResolveCoreValidatorEndpoints(prevEpochData.Quorum)
-	client := &http.Client{Timeout: 2 * time.Second}
 	for _, member := range prevEpochData.Quorum {
 		endpoint := endpoints[member]
 		if endpoint.ValidatorUrl == "" {
@@ -200,7 +208,7 @@ func getEpochAnnouncementProofFromCoreHTTP(nextEpochId int) *structures.Aggregat
 		}
 
 		url := strings.TrimRight(endpoint.ValidatorUrl, "/") + "/epoch_announcement_proof/" + strconv.Itoa(nextEpochId)
-		resp, err := client.Get(url)
+		resp, err := alfpCollectionHTTPClient.Get(url)
 		if err != nil {
 			continue
 		}

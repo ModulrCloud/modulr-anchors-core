@@ -3,13 +3,26 @@ package websocket_pack
 import (
 	"encoding/json"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/modulrcloud/modulr-anchors-core/databases"
+	"github.com/modulrcloud/modulr-anchors-core/utils"
 
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
 const POD_OUTBOX_PREFIX = "ANCHORS_POD_OUTBOX:"
+
+const (
+	anchorsPoDAsyncQueueSize = 2048
+	anchorsPoDAsyncWorkers   = 2
+)
+
+var (
+	anchorsPoDAsyncOnce  sync.Once
+	anchorsPoDAsyncQueue chan outboxEntry
+)
 
 type PodStatusResponse struct {
 	Status string `json:"status"`
@@ -47,6 +60,60 @@ func SendToAnchorsPoDWithOutbox(id string, payload []byte) bool {
 type outboxEntry struct {
 	id      string
 	payload []byte
+	persist bool
+}
+
+func EnqueueAnchorsPoDStoreMessage(id string, payload []byte, persist bool) bool {
+	if id == "" || len(payload) == 0 {
+		return false
+	}
+
+	if persist && databases.FINALIZATION_VOTING_STATS != nil {
+		_ = databases.FINALIZATION_VOTING_STATS.Put(podOutboxKey(id), payload, nil)
+	}
+
+	startAnchorsPoDAsyncWorkers()
+	entry := outboxEntry{id: id, payload: append([]byte(nil), payload...), persist: persist}
+	select {
+	case anchorsPoDAsyncQueue <- entry:
+		return true
+	default:
+		utils.LogWithTimeThrottled(
+			"anchors_core:pod_async_queue_full",
+			5*time.Second,
+			"ANCHORS-CORE: async PoD store queue is full; store message remains in persistent outbox or is dropped when outbox is disabled",
+			utils.YELLOW_COLOR,
+		)
+		return false
+	}
+}
+
+func startAnchorsPoDAsyncWorkers() {
+	anchorsPoDAsyncOnce.Do(func() {
+		anchorsPoDAsyncQueue = make(chan outboxEntry, anchorsPoDAsyncQueueSize)
+		for i := 0; i < anchorsPoDAsyncWorkers; i++ {
+			go func() {
+				for entry := range anchorsPoDAsyncQueue {
+					sendAnchorsPoDOutboxEntry(entry)
+				}
+			}()
+		}
+	})
+}
+
+func sendAnchorsPoDOutboxEntry(entry outboxEntry) bool {
+	resp, err := SendWebsocketMessageToAnchorsPoD(entry.payload)
+	if err == nil && isPodAck(resp) {
+		if entry.persist && databases.FINALIZATION_VOTING_STATS != nil {
+			_ = databases.FINALIZATION_VOTING_STATS.Delete(podOutboxKey(entry.id), nil)
+		}
+		return true
+	}
+
+	if entry.persist && databases.FINALIZATION_VOTING_STATS != nil {
+		_ = databases.FINALIZATION_VOTING_STATS.Put(podOutboxKey(entry.id), entry.payload, nil)
+	}
+	return false
 }
 
 func FlushAnchorsPoDOutboxOnce(limit int) int {
@@ -82,7 +149,8 @@ func FlushAnchorsPoDOutboxOnce(limit int) int {
 
 	sent := 0
 	for _, entry := range entries {
-		if SendToAnchorsPoDWithOutbox(entry.id, entry.payload) {
+		entry.persist = true
+		if sendAnchorsPoDOutboxEntry(entry) {
 			sent++
 		}
 	}

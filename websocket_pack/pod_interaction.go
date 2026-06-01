@@ -3,6 +3,7 @@ package websocket_pack
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -30,7 +31,17 @@ var (
 	ANCHORS_POD_ACCESS_MUTEX     sync.Mutex      // Guards open/close & replace of PoD conn
 	ANCHORS_POD_READ_WRITE_MUTEX sync.Mutex      // Serializes request/response (write+read) on a single PoD conn
 	ANCHORS_POD_CONNECTION       *websocket.Conn // Connection with PoD itself
-	ANCHORS_HTTP_CLIENT          = &http.Client{Timeout: 2 * time.Second}
+	ANCHORS_HTTP_CLIENT          = &http.Client{
+		Timeout: 2 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        32,
+			MaxIdleConnsPerHost: 4,
+			MaxConnsPerHost:     4,
+			IdleConnTimeout:     30 * time.Second,
+		},
+	}
+	publishedAnchorBlocksToPoD sync.Map
+	recoveryHTTPAttempts       sync.Map
 )
 
 type aggregatedEpochRotationProofGetRequest struct {
@@ -140,15 +151,25 @@ func SendBlockAndAfpToAnchorsPoD(block block_pack.Block, afp *structures.Aggrega
 	if afp == nil {
 		return
 	}
+	if block.Creator != globals.CONFIGURATION.PublicKey {
+		return
+	}
 
 	req := WsAnchorBlockWithAfpStoreRequest{Route: "accept_anchor_block_with_afp", Block: block, Afp: *afp}
 	if reqBytes, err := json.Marshal(req); err == nil {
 		id := "ANCHOR_BLOCK:" + block.Epoch + ":" + block.Creator + ":" + strconv.Itoa(block.Index)
-		if globals.CONFIGURATION.DisablePoDOutbox {
-			_, _ = SendWebsocketMessageToAnchorsPoD(reqBytes)
+		if _, loaded := publishedAnchorBlocksToPoD.LoadOrStore(id, struct{}{}); loaded {
 			return
 		}
-		_ = SendToAnchorsPoDWithOutbox(id, reqBytes)
+		if globals.CONFIGURATION.DisablePoDOutbox {
+			if !EnqueueAnchorsPoDStoreMessage(id, reqBytes, false) {
+				publishedAnchorBlocksToPoD.Delete(id)
+			}
+			return
+		}
+		_ = EnqueueAnchorsPoDStoreMessage(id, reqBytes, true)
+	} else {
+		publishedAnchorBlocksToPoD.Delete("ANCHOR_BLOCK:" + block.Epoch + ":" + block.Creator + ":" + strconv.Itoa(block.Index))
 	}
 }
 
@@ -324,6 +345,15 @@ func getAggregatedEpochRotationProofFromAnchorHTTP(anchorPubkey, anchorURL strin
 }
 
 func getAggregatedEpochRotationProofFromAnchorHTTPUnverified(anchorPubkey, anchorURL string, targetEpochId int) *structures.AggregatedEpochRotationProof {
+	attemptKey := anchorPubkey + ":" + strconv.Itoa(targetEpochId)
+	now := time.Now()
+	if raw, ok := recoveryHTTPAttempts.Load(attemptKey); ok {
+		if lastAttempt, ok := raw.(time.Time); ok && now.Sub(lastAttempt) < 5*time.Second {
+			return nil
+		}
+	}
+	recoveryHTTPAttempts.Store(attemptKey, now)
+
 	resp, err := ANCHORS_HTTP_CLIENT.Get(anchorURL + "/recovery/core_quorum/" + strconv.Itoa(targetEpochId))
 	if err != nil {
 		utils.LogWithTimeThrottled(
@@ -334,7 +364,7 @@ func getAggregatedEpochRotationProofFromAnchorHTTPUnverified(anchorPubkey, ancho
 		)
 		return nil
 	}
-	defer resp.Body.Close()
+	defer drainAndClose(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		utils.LogWithTimeThrottled(
@@ -394,6 +424,14 @@ func getAggregatedEpochRotationProofFromAnchorHTTPUnverified(anchorPubkey, ancho
 	}
 
 	return proof
+}
+
+func drainAndClose(body io.ReadCloser) {
+	if body == nil {
+		return
+	}
+	_, _ = io.Copy(io.Discard, body)
+	_ = body.Close()
 }
 
 func openWebsocketConnectionWithAnchorsPoD() (*websocket.Conn, error) {

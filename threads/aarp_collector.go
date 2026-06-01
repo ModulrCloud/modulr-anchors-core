@@ -18,7 +18,15 @@ import (
 	"github.com/modulrcloud/modulr-anchors-core/utils"
 )
 
-var HTTP_CLIENT = &http.Client{Timeout: 5 * time.Second}
+var HTTP_CLIENT = &http.Client{
+	Timeout: 5 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        32,
+		MaxIdleConnsPerHost: 4,
+		MaxConnsPerHost:     4,
+		IdleConnTimeout:     30 * time.Second,
+	},
+}
 
 const MAX_ROTATION_SIGNATURE_CONCURRENCY = 20
 
